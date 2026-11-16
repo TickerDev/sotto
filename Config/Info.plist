@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>CFBundleName</key><string>Sotto</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>10</string>
+<key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+<key>LSUIElement</key><true/>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSMicrophoneUsageDescription</key><string>Sotto listens only when you activate voice input.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Sotto transcribes your spoken commands using Apple Speech.</string>
+<key>NSAppleEventsUsageDescription</key><string>Sotto controls Spotify playback when you ask.</string>
+<key>NSRemindersFullAccessUsageDescription</key><string>Sotto creates and lists reminders when you ask.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Sotto reads your calendar when you ask what’s coming up. It does not change your events.</string>
+</dict></plist>

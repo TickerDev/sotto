@@ -1,0 +1,41 @@
+name: Sotto
+options:
+  deploymentTarget:
+    macOS: '14.0'
+  xcodeVersion: '16.0'
+packages:
+  SottoKit:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    MACOSX_DEPLOYMENT_TARGET: '14.0'
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    COMBINE_HIDPI_IMAGES: YES
+  configs:
+    Release:
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: Developer ID Application
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+      OTHER_CODE_SIGN_FLAGS: $(inherited) --timestamp
+      ONLY_ACTIVE_ARCH: NO
+targets:
+  Sotto:
+    type: application
+    platform: macOS
+    sources: [Sources/SottoApp]
+    dependencies:
+      - package: SottoKit
+        product: SottoUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sotto.mac
+        INFOPLIST_FILE: Config/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Sotto.entitlements
+        PRODUCT_NAME: Sotto
+schemes:
+  Sotto:
+    build:
+      targets:
+        Sotto: all

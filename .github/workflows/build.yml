@@ -1,0 +1,14 @@
+name: Build and test
+on: [push, pull_request]
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Unit tests (no credentials)
+        run: swift test
+      - name: Build native application
+        run: ./Scripts/build.sh
