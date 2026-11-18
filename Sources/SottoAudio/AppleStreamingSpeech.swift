@@ -42,10 +42,16 @@ import Foundation
             let allowed = permission == .authorized ? true : permission == .notDetermined ? await AVCaptureDevice.requestAccess(for: .audio) : false
             guard allowed else { throw SpeechError.microphonePermission }
             try token.checkActive(); try Task.checkCancellation()
-            try await withTaskCancellationHandler {
+            try await SpeechStartupDeadline.run(timeout: .seconds(8), operation: { [worker] in
                 try await worker.start(locale: locale, deviceID: deviceID, token: token, update: update)
-            } onCancel: { [worker] in token.cancel(); Task { await worker.cancel(token) } }
-        } catch { token.cancel(); await worker.cancel(token); throw error }
+            }, onAbort: { [worker] in token.cancel(); Task { await worker.cancel(token) } })
+            try Task.checkCancellation(); try token.checkActive()
+        } catch {
+            token.cancel()
+            Task { [worker] in await worker.cancel(token) }
+            if self.token === token { self.token = nil }
+            throw error
+        }
     }
     public func finish() async throws -> String {
         guard let token else { throw CancellationError() }
@@ -91,7 +97,14 @@ final class AnalyzerPCMBridge {
 @available(macOS 26, *)
 actor ModernSpeechWorker {
     private let microphone: any StreamingAudioCapture
-    init(microphone: any StreamingAudioCapture = RealtimeMicrophone()) { self.microphone = microphone }
+    private let resolveLocale: @Sendable (String) async -> Locale?
+    init(microphone: any StreamingAudioCapture = RealtimeMicrophone(),
+         resolveLocale: @escaping @Sendable (String) async -> Locale? = {
+             await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: $0))
+         }) {
+        self.microphone = microphone; self.resolveLocale = resolveLocale
+    }
+    private var startupGeneration = UUID()
     private var token: SpeechSessionToken?
     private var analyzer: SpeechAnalyzer?
     private var bridge: AnalyzerPCMBridge?
@@ -105,22 +118,29 @@ actor ModernSpeechWorker {
 
     func start(locale: String, deviceID: UInt32, token: SpeechSessionToken, update: @escaping @Sendable (SpeechUpdate) -> Void) async throws {
         try token.checkActive()
+        let generation = UUID(); startupGeneration = generation
         if let previous = self.token { await cancel(previous) }
+        try token.checkActive(); try Task.checkCancellation()
+        guard startupGeneration == generation else { throw CancellationError() }
         self.token = token; completed = nil; transcript = StreamingTranscript()
-        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: locale)) else { throw SpeechError.recognitionUnavailable }
-        let transcriber = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
-        let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
-        self.analyzer = analyzer
-        deadline = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            if !Task.isCancelled { await self?.expire(token, message: "On-device speech did not become ready. Try again.") }
-        }
+        try checkSession(token)
         do {
+            let supported = await resolveLocale(locale)
+            try checkSession(token)
+            guard let supported else { throw SpeechError.recognitionUnavailable }
+            let transcriber = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
+            let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
+            self.analyzer = analyzer
+            // Capture is independent of format negotiation and model preparation.
+            // It starts only after activation and permission, with bounded PCM.
+            // Cancellation must stop capture before async-let scope exit waits
+            // for a microphone that may still be awaiting its first buffer.
+            async let capturedAudio = capture(deviceID: deviceID, token: token, update: update)
             guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else { throw SpeechError.onDeviceUnavailable }
-            try token.checkActive()
+            try checkSession(token)
             bridge = try AnalyzerPCMBridge(format: format)
             try await analyzer.prepareToAnalyze(in: format)
-            try token.checkActive()
+            try checkSession(token)
             let pair = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingOldest(512)); input = pair.continuation
             reader = Task { [weak self] in
                 do {
@@ -131,22 +151,37 @@ actor ModernSpeechWorker {
                 } catch { await self?.failed(error, token: token, update: update) }
             }
             try await analyzer.start(inputSequence: pair.stream)
-            let audio = try await microphone.start(deviceID: deviceID, token: token, update: update)
-            try token.checkActive()
+            try checkSession(token)
+            let audio = try await capturedAudio
+            try checkSession(token)
             deadline?.cancel(); deadline = nil
+            let resultReader = reader
             feeder = Task { [weak self] in
                 do {
                     for try await data in audio { try Task.checkCancellation(); try await self?.feed(data, token: token) }
                     try await self?.finishInput(token)
                     try await analyzer.finalizeAndFinishThroughEndOfInput()
-                    await self?.reader?.value
+                    await resultReader?.value
                     await self?.complete(token)
                 } catch { await self?.failed(error, token: token, update: update) }
             }
         } catch {
             let failure: Error
-            if case .failure(let reason) = completed { failure = reason } else { failure = error }
+            if self.token === token, case .failure(let reason) = completed { failure = reason } else { failure = error }
             await cancel(token); throw failure
+        }
+    }
+    private func checkSession(_ token: SpeechSessionToken) throws {
+        try Task.checkCancellation(); try token.checkActive()
+        guard self.token === token else { throw CancellationError() }
+    }
+    private func capture(deviceID: UInt32, token: SpeechSessionToken, update: @escaping @Sendable (SpeechUpdate) -> Void) async throws -> AsyncThrowingStream<Data, Error> {
+        try checkSession(token)
+        return try await withTaskCancellationHandler {
+            try await microphone.start(deviceID: deviceID, token: token, update: update)
+        } onCancel: { [microphone] in
+            token.cancel()
+            Task { await microphone.cancel(token) }
         }
     }
     private func feed(_ data: Data, token: SpeechSessionToken) throws {
@@ -154,7 +189,7 @@ actor ModernSpeechWorker {
         if let value = try bridge?.convert(data), case .dropped = input?.yield(value) { throw SpeechError.message("On-device speech couldn’t keep up. Recording was discarded.") }
     }
     private func finishInput(_ token: SpeechSessionToken) throws {
-        try token.checkActive()
+        try checkSession(token)
         if let value = try bridge?.flush(), case .dropped = input?.yield(value) { throw SpeechError.message("On-device speech couldn’t finish this recording.") }
         input?.finish(); input = nil
     }
@@ -178,6 +213,7 @@ actor ModernSpeechWorker {
     func finish(_ token: SpeechSessionToken) async throws -> String {
         guard self.token === token else { throw CancellationError() }; try token.checkActive()
         try await microphone.finish(token)
+        try checkSession(token)
         deadline?.cancel()
         deadline = Task { [weak self] in
             try? await Task.sleep(for: .seconds(4))

@@ -40,9 +40,8 @@ struct LocalAction {
 
     static func schema(tools: [ToolDescriptor]) throws -> GenerationSchema {
         try GenerationSchema(root: DynamicGenerationSchema(name: "NextStep", properties: [
-            .init(name: "remainingWork", description: "What work from the user's request still needs a tool call? Say complete if ready to reply.", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "tool", description: "Choose a tool for remaining work, or leave empty to reply directly to the user", schema: DynamicGenerationSchema(name: "ToolChoice", anyOf: [""] + tools.map(\.id))),
-            .init(name: "reply", description: "Natural, conversational reply spoken directly to the user when tool is empty. Answer directly or ask a brief follow-up question when helpful. Never say 'no action needed' or claim success without tool evidence.", schema: DynamicGenerationSchema(type: String.self))
+            .init(name: "remainingWork", description: "Next uncompleted action in at most six words; 'complete' if done.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "tool", description: "Exact tool for the next uncompleted action; empty to answer. Never substitute an unrelated tool.", schema: DynamicGenerationSchema(name: "ToolChoice", anyOf: [""] + tools.map(\.id)))
         ]), dependencies: [])
     }
     static func replySchema() throws -> GenerationSchema {
@@ -71,6 +70,7 @@ struct LocalAction {
         var conversation: [String] = []
         var recalled: [String] = []
         var completed: [String] = []
+        var readDocument = false
         for (index, item) in input.enumerated() {
             let inCurrentTurn = index >= currentTurnStart
             if let call = try ToolCall(item: item) { calls[call.id] = call }
@@ -90,7 +90,15 @@ struct LocalAction {
                             completed.append("recall_previous_conversation with {}: retrieved previous conversation (do not call again)")
                         }
                     } else {
-                        let description = "\(call.name) with \(call.arguments.encoded): \(output)"
+                        if call.name == "read_document", inCurrentTurn { readDocument = true }
+                        // Fit document excerpts into the small on-device context.
+                        // Other providers keep the original bounded tool result.
+                        var contextualResult = result
+                        if call.name == "read_document", var data = result.data.object, let text = data["text"]?.string, text.count > 2500 {
+                            data["text"] = .string(String(text.prefix(2500))); data["truncated"] = .bool(true)
+                            contextualResult = ToolResult(result.summary + " (excerpt only; say so in the summary)", data: .object(data))
+                        }
+                        let description = "\(call.name) with \(call.arguments.encoded): \(contextualResult.encoded)"
                         if inCurrentTurn { completed.append(description) }
                         else { history.append("Earlier completed action: \(description)") }
                     }
@@ -102,17 +110,19 @@ struct LocalAction {
             }
         }
         var sections: [String] = []
-        if !history.isEmpty { sections.append("Earlier conversation:\n" + history.joined(separator: "\n")) }
+        if !history.isEmpty { sections.append("Earlier conversation:\n" + history.suffix(4).joined(separator: "\n")) }
         if !recalled.isEmpty { sections.append("Recalled previous ended conversation:\n" + recalled.joined(separator: "\n\n")) }
         if !conversation.isEmpty { sections.append(conversation.joined(separator: "\n")) }
         sections.append("Actions already completed in this turn; do not repeat:\n" + (completed.isEmpty ? "None" : completed.joined(separator: "\n")))
         var guidance: String
         if completed.isEmpty {
-            guidance = "Choose the next tool to run, or leave tool empty and talk back naturally to the user."
+            guidance = "Resolve explicit self-corrections before choosing a tool: actually/no/I mean/instead can replace an earlier action or destination. Choose only the final active intent; do not execute withdrawn work. Choose the next tool to run, or leave tool empty and talk back naturally to the user."
         } else if !recalled.isEmpty {
             guidance = "Use the recalled previous conversation above to answer the user's request directly (leave tool empty and reply naturally), or choose another uncompleted tool if a device action is needed."
+        } else if readDocument {
+            guidance = "The document text above has been read, but reading is not a summary. If another requested action remains, choose its tool. Otherwise leave tool empty and answer the user with the actual document facts or summary, including relevant dates/numbers. Never just say the summary is ready or the document was read. Disclose partial/excerpt text."
         } else {
-            guidance = "If the completed action(s) above already satisfy the user's request, leave tool empty and talk back naturally confirming what finished; otherwise choose only a remaining uncompleted tool."
+            guidance = "Check the active user intent against the completed actions above. Apply explicit self-corrections first: never execute a withdrawn action or destination, even as remaining work. If any other still-requested action (such as an added second setting or volume/audio adjustment) has not been executed yet, choose its tool now; only leave tool empty when every still-requested action is completed."
         }
         if canRecallPreviousConversation && recalled.isEmpty {
             guidance += " If the user's request refers back to a previous conversation or earlier result, choose recall_previous_conversation to read it before replying."
@@ -183,17 +193,32 @@ public struct OnDeviceProvider: ReasoningProvider {
     }
     private func propose(session: LanguageModelSession, prompt: String, tools: [ToolDescriptor]) async throws -> LocalAction {
         let options = GenerationOptions(samplingMode: .greedy)
+        let started = ContinuousClock.now
         let content = try await session.respond(to: prompt, schema: LocalAction.schema(tools: tools), options: options).content
+        Logger(subsystem: "org.sotto.mac", category: "on-device-timing").notice("Tool selection: \(String(describing: started.duration(to: .now)), privacy: .public)")
         try Task.checkCancellation()
         let name = try content.value(String.self, forProperty: "tool")
         if name.isEmpty {
-            return LocalAction(tool: "", arguments: [], reply: try content.value(String.self, forProperty: "reply"))
+            let response = try await session.respond(to: "Answer the user's request directly using actual tool data above. For a summary, give the actual document facts, dates and numbers, not a status such as 'summary is ready'. Disclose excerpts. For device actions, confirm only verified results. Be brief; ask only a necessary question.", schema: LocalAction.replySchema(), options: options).content
+            try Task.checkCancellation()
+            return LocalAction(tool: "", arguments: [], reply: try response.value(String.self, forProperty: "reply"))
         }
         guard let descriptor = tools.first(where: { $0.id == name }) else { throw IntelligenceResponseError.invalidAction }
         if descriptor.inputSchema.object?["properties"]?.object?.isEmpty == true {
             return LocalAction(tool: name, arguments: [], reply: "")
         }
-        let arguments = try await session.respond(to: "Provide only the parameters for \(name) for the remaining user request. Use the response schema. Do not repeat completed work.", schema: LocalAction.argumentSchema(tool: descriptor), options: options).content
+        let extraHint: String
+        switch name {
+        case "system_settings":
+            extraHint = " Pick the exact setting requested, or 'not_listed' if it is not explicitly in the list. Never substitute a different setting like wifi or bluetooth. For volume or brightness percentages, use action 'set' and numeric value '0'..'100' (never 'open' or 'toggle')."
+        case "system_settings_ui":
+            extraHint = " Pick the System Settings pane and control requested. Use action 'on' to turn on/enable or 'off' to turn off/disable (never 'toggle' unless asked to toggle). Leave 'value' empty unless a specific option like 'Only on Battery' or a slider percentage was requested."
+        default:
+            extraHint = ""
+        }
+        let argumentsStarted = ContinuousClock.now
+        let arguments = try await session.respond(to: "Provide only the parameters for \(name) for the remaining user request. Use the response schema. Do not repeat completed work.\(extraHint)", schema: LocalAction.argumentSchema(tool: descriptor), options: options).content
+        Logger(subsystem: "org.sotto.mac", category: "on-device-timing").notice("Tool arguments: \(String(describing: argumentsStarted.duration(to: .now)), privacy: .public)")
         let combined = GeneratedContent(properties: ["tool": name, "arguments": arguments])
         return try LocalAction.decode(combined, tools: tools)
     }
@@ -202,7 +227,10 @@ public struct OnDeviceProvider: ReasoningProvider {
             let task = Task {
                 do {
                     guard OnDeviceIntelligence.available else { throw ToolError.unavailable(OnDeviceIntelligence.status) }
-                    let definitions = tools.map { "\($0.id): \($0.description)\n\($0.inputSchema.encoded)" }.joined(separator: "\n")
+                    // Selection needs capabilities, not every argument schema.
+                    // The selected tool's typed schema is supplied in the next
+                    // generation and validated again before any execution.
+                    let definitions = tools.map { "\($0.id): \($0.description)" }.joined(separator: "\n")
                     let session = LanguageModelSession(instructions: instructions + "\nPropose only one tool action at a time when a tool is required, or leave tool empty to talk back naturally to the user. Do not repeat actions with successful tool evidence. Use these tools:\n" + definitions)
                     let canRecall = tools.contains(where: { $0.id == "recall_previous_conversation" })
                     let prompt = try LocalAction.prompt(input: input, canRecallPreviousConversation: canRecall)
@@ -214,7 +242,9 @@ public struct OnDeviceProvider: ReasoningProvider {
                     if try LocalAction.repeated(action, input: input, tools: tools) {
                         var resolved: LocalAction?
                         do {
-                            let retryPrompt = action.tool == "recall_previous_conversation"
+                            let retryPrompt = action.tool == "read_document"
+                                ? "The document has already been read. Do not read it again. Leave tool empty and provide the actual requested summary or answer from its text above, including relevant dates and numbers; never just say a summary is ready. If another requested device action remains, choose its uncompleted tool."
+                                : action.tool == "recall_previous_conversation"
                                 ? "You already read the previous conversation above. Do not call recall_previous_conversation again. Leave tool empty and answer the user's request using the recalled conversation above, or choose another tool only if a device action is needed."
                                 : "You already completed \(action.tool) with those arguments. Do not call it again. Choose a different tool only if another uncompleted action was requested; otherwise leave tool empty and reply naturally confirming what finished."
                             let retry = try await propose(session: session, prompt: retryPrompt, tools: tools)
@@ -229,7 +259,9 @@ public struct OnDeviceProvider: ReasoningProvider {
                         } else {
                             let replyText: String?
                             do {
-                                let fallbackPrompt = action.tool == "recall_previous_conversation"
+                                let fallbackPrompt = action.tool == "read_document"
+                                    ? "Summarize the actual document text above with relevant facts, dates and numbers. Do not say the summary is ready without giving it. Mention if the text is partial."
+                                    : action.tool == "recall_previous_conversation"
                                     ? "Answer the user's question briefly and naturally using the recalled conversation above."
                                     : "Reply briefly and naturally to the user answering their request or confirming what finished based on the session above."
                                 let fallback = try await session.respond(to: fallbackPrompt, schema: LocalAction.replySchema()).content
@@ -247,7 +279,12 @@ public struct OnDeviceProvider: ReasoningProvider {
                 } catch is DecodingError {
                     Logger(subsystem: "org.sotto.mac", category: "on-device").error("Could not decode the structured on-device response")
                     continuation.finish(throwing: IntelligenceResponseError.unreadableResponse)
-                } catch { continuation.finish(throwing: error) }
+                } catch {
+                    if !(error is CancellationError) {
+                        Logger(subsystem: "org.sotto.mac", category: "on-device").error("On-device generation failed: \(String(describing: type(of: error)), privacy: .public)")
+                    }
+                    continuation.finish(throwing: error)
+                }
             }
             continuation.onTermination = { @Sendable _ in task.cancel() }
         }

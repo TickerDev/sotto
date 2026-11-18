@@ -7,6 +7,7 @@ struct AgendaEvent: Sendable, Equatable {
     let start: Date
     let end: Date
     let allDay: Bool
+    var identifier: String = ""
 }
 
 protocol AgendaSource: Sendable {
@@ -26,7 +27,7 @@ private actor EventKitAgendaSource: AgendaSource {
         self.store = store
         let predicate = store.predicateForEvents(withStart: interval.start, end: interval.end, calendars: nil)
         let events = store.events(matching: predicate).filter { $0.status != .canceled }.map {
-            AgendaEvent(title: String(($0.title ?? "Untitled event").prefix(256)), start: $0.startDate, end: $0.endDate, allDay: $0.isAllDay)
+            AgendaEvent(title: String(($0.title ?? "Untitled event").prefix(256)), start: $0.startDate, end: $0.endDate, allDay: $0.isAllDay, identifier: $0.eventIdentifier ?? "")
         }
         try Task.checkCancellation()
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
@@ -74,7 +75,7 @@ struct ListCalendarEventsTool: Tool {
             "agenda": .string(agenda), "total": .number(Double(events.count)),
             "truncated": .bool(events.count > visible.count),
             "events": .array(visible.map { .object([
-                "title": .string($0.title), "start": .string(formatter.string(from: $0.start)),
+                "id": .string($0.identifier), "title": .string($0.title), "start": .string(formatter.string(from: $0.start)),
                 "end": .string(formatter.string(from: $0.end)), "all_day": .bool($0.allDay)
             ]) })
         ]))

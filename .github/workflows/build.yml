@@ -10,5 +10,11 @@ jobs:
           xcode-version: latest-stable
       - name: Unit tests (no credentials)
         run: swift test
+      - name: Voice benchmark report tests
+        run: python3 -m unittest discover -s Tests/BenchmarkTests -v
       - name: Build native application
         run: ./Scripts/build.sh
+      - name: Release identity policy tests
+        run: python3 -m unittest discover -s Tests/ReleaseTests -v
+      - name: Universal Release compile (unsigned, no distribution)
+        run: xcodebuild -quiet -project Sotto.xcodeproj -scheme Sotto -configuration Release -derivedDataPath build/release-check ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build

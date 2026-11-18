@@ -1,0 +1,10 @@
+{
+  "checks": [
+    {
+      "detail": "Owned external fixture did not become foreground. No personal selection read.",
+      "status": "blocked",
+      "tool": "selection.read/windows.*"
+    }
+  ],
+  "identity": "org.sotto.mac"
+}

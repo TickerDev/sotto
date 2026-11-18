@@ -4,7 +4,55 @@ import OSLog
 import SottoTools
 
 public enum NativeTools {
-    public static func registry() -> ToolRegistry { ToolRegistry([SpotifyTool(), FolderTool(), FileTool(), SearchFilesTool(), ApplicationTool(), CreateReminderTool(), ListRemindersTool(), ListCalendarEventsTool()]) }
+    public static func registry(sottoSettings: (any SottoSettingsBridge)? = nil, webSearch: (any WebSearchProvider)? = nil) -> ToolRegistry {
+        let tools: [any Tool] = [
+            AppleNotesTool(action: "list"), AppleNotesTool(action: "search"), AppleNotesTool(action: "read"), AppleNotesTool(action: "create"), AppleNotesTool(action: "update"),
+            NotesTool(action: "list"), NotesTool(action: "search"), NotesTool(action: "read"), NotesTool(action: "create"), NotesTool(action: "update"),
+            ContactsTool(action: "search"), ContactsTool(action: "get"), ContactsTool(action: "create"), ContactsTool(action: "update"),
+            BrowserTool(action: "currentTab"), BrowserTool(action: "readPage"), BrowserTool(action: "find"), BrowserTool(action: "openLink"),
+            AliasTool(action: "list"), AliasTool(action: "save"), AliasTool(action: "remove"),
+            FileIndexTool(), ScopedFileSearchTool(),
+            NamedTool("files.open", FileTool(), fixed: ["action": .string("open")]),
+            NamedTool("files.reveal", FileTool(), fixed: ["action": .string("reveal")]),
+            NamedTool("files.read", ReadDocumentTool()),
+            FileManagementTool(action: "info"), FileManagementTool(action: "move"), FileManagementTool(action: "rename"),
+            NamedTool("apps.open", ApplicationTool(), fixed: ["action": .string("open")]),
+            AppLifecycleTool(action: "list"), AppLifecycleTool(action: "activate"), AppLifecycleTool(action: "quit"),
+            NamedTool("calendar.list", ListCalendarEventsTool()),
+            NamedTool("calendar.create", CreateCalendarEventTool()),
+            CompleteReminderTool(), UpdateCalendarTool(),
+            NamedTool("reminders.list", ListRemindersTool()),
+            NamedTool("reminders.create", CreateReminderTool()),
+            TimerTool(action: "start"), TimerTool(action: "list"), TimerTool(action: "cancel"),
+            ContextTool(action: "screen.context"), ContextTool(action: "selection.read"),
+            ContextTool(action: "clipboard.read"), ContextTool(action: "clipboard.write"),
+            WindowTool(action: "list"), WindowTool(action: "focus"), WindowTool(action: "manage"),
+            NamedTool("audio.volume", SystemSettingsTool(), fixed: ["setting": .string("volume")]),
+            NamedTool("system.openSettings", SystemSettingsTool(), fixed: ["setting": .string("open_pane"), "action": .string("open")]),
+            NamedTool("media.next", SpotifyTool(), fixed: ["action": .string("next")]),
+            NamedTool("media.previous", SpotifyTool(), fixed: ["action": .string("previous")]),
+            MediaPlaybackTool(), AudioOutputTool(), ScreenTool(action: "capture"), ScreenTool(action: "readText"), SystemInfoTool(),
+            WebDocumentTool(action: "download"), WebDocumentTool(action: "readPDF"),
+            ImageSearchTool(), DocumentSearchTool(), ResearchTool(provider: webSearch), WebSearchTool(provider: webSearch), WebPageTool(action: "fetch"), WebPageTool(action: "extractLinks"), WebOpenTool(),
+            ShortcutsTool(action: "list"), ShortcutsTool(action: "run"),
+            SpotifyTool(),
+            FolderTool(),
+            FileTool(),
+            SearchFilesTool(),
+            ApplicationTool(),
+            CreateReminderTool(),
+            ListRemindersTool(),
+            ListCalendarEventsTool(),
+            CreateCalendarEventTool(),
+            ReadDocumentTool(),
+            SystemSettingsTool(),
+            SystemSettingsUITool(),
+            SystemPowerTool(),
+            SottoSettingsTool(bridge: sottoSettings)
+        ]
+        let base = ToolRegistry(tools)
+        return ToolRegistry(tools + [WorkflowTool(registry: base), ListWorkflowsTool(), SaveWorkflowTool(registry: base), RemoveWorkflowTool(), ListWorkflowRunsTool(), ResumeWorkflowTool(registry: base)])
+    }
 }
 public enum FilePolicy {
     public static let supportedDocumentExtensions = ["pdf", "txt", "md", "rtf", "docx", "xlsx", "pptx", "png", "gif", "jpg", "jpeg", "heic", "mp3", "mp4", "mov", "pages", "numbers", "key"]
@@ -54,15 +102,29 @@ struct FileTool: Tool {
     var continuation: CheckedContinuation<ToolResult, Error>?
     var timeout: Task<Void, Never>?
     var searchName = ""
-    func search(_ name: String) async throws -> ToolResult {
+    func search(_ name: String, scopes: [URL]? = nil, content: Bool = false, fileExtension: String = "", modifiedSince: Date? = nil) async throws -> ToolResult {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
                 searchName = name
-                query.searchScopes = [FileManager.default.homeDirectoryForCurrentUser]
+                query.searchScopes = scopes ?? [NSMetadataQueryLocalComputerScope]
                 query.predicate = name == ".pdf"
                     ? NSPredicate(format: "%K ENDSWITH[cd] %@", NSMetadataItemFSNameKey, name)
                     : NSCompoundPredicate(orPredicateWithSubpredicates: FileSearchRanking.terms(name).map { NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, $0) })
+                if content {
+                    query.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: [
+                        NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, name),
+                        NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemTextContentKey, name)
+                    ])
+                }
+                var predicates = [query.predicate!]
+                if !fileExtension.isEmpty {
+                    predicates.append(NSPredicate(format: "%K ENDSWITH[cd] %@", NSMetadataItemFSNameKey, "." + fileExtension))
+                }
+                if let modifiedSince {
+                    predicates.append(NSPredicate(format: "%K >= %@", NSMetadataItemFSContentChangeDateKey, modifiedSince as NSDate))
+                }
+                query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
                 query.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)]
                 observer = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: query, queue: .main) { [weak self] _ in Task { @MainActor in self?.finish() } }
                 timeout = Task { try? await Task.sleep(for: .seconds(8)); if !Task.isCancelled { finish(error: ToolError.unavailable("File search took too long. Please try again.")) } }
@@ -79,6 +141,8 @@ struct FileTool: Tool {
         let candidates = (0..<min(query.resultCount, 500)).compactMap { index -> FileSearchMatch? in
             guard let item = query.result(at: index) as? NSMetadataItem,
                   let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { return nil }
+            let fileURL = URL(fileURLWithPath: path)
+            guard FileManager.default.isReadableFile(atPath: path), !DocumentSearchPrivacy.isExcluded(fileURL) else { return nil }
             return FileSearchMatch(path: path, modified: item.value(forAttribute: NSMetadataItemFSContentChangeDateKey) as? Date)
         }
         let files = Array(FileSearchRanking.ranked(candidates, query: searchName).prefix(20))
@@ -136,15 +200,43 @@ struct CreateReminderTool: Tool {
     }
 }
 struct ListRemindersTool: Tool {
-    let descriptor = ToolDescriptor(id: "list_reminders", description: "List incomplete reminders", properties: [:], required: [], risk: .read, capabilities: [.reminders])
+    let descriptor = ToolDescriptor(id: "list_reminders", description: "List up to 30 incomplete reminders, optionally filtering their titles by a literal query. At most 5000 fetched reminders are examined; narrow the query when needed.", properties: ["query": textProperty("Optional literal title fragment")], required: [], risk: .read, capabilities: [.reminders])
     @MainActor func execute(arguments: JSONValue) async throws -> ToolResult {
+        try descriptor.validate(arguments)
+        let query = arguments.object?["query"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard query.count <= 120, query.rangeOfCharacter(from: .controlCharacters) == nil else { throw ToolError.invalid("Use a short literal reminder title") }
         try await RemindersAccess.authorize(); try Task.checkCancellation()
         let store = RemindersAccess.store
-        let items: [String] = await withCheckedContinuation { c in store.fetchReminders(matching: store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)) { @Sendable reminders in c.resume(returning: (reminders ?? []).map { $0.title ?? "Untitled" }) } }
-        return ToolResult("Found \(items.count) incomplete reminders", data: .array(items.prefix(30).map { .string($0) }))
+        let items: [(String, String, String)] = await withCheckedContinuation { c in store.fetchReminders(matching: store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)) { @Sendable reminders in c.resume(returning: (reminders ?? []).prefix(5000).filter { query.isEmpty || ($0.title ?? "").localizedCaseInsensitiveContains(query) }.prefix(30).map { ($0.calendarItemIdentifier, $0.title ?? "Untitled", $0.calendar.title) }) } }
+        return ToolResult("Found \(items.count) incomplete reminders", data: .array(items.prefix(30).map { .object(["id": .string($0.0), "title": .string($0.1), "list": .string($0.2)]) }))
     }
 }
 public struct ForegroundContext: Sendable {
     public let name: String; public let bundleID: String
     @MainActor public static func current() -> ForegroundContext? { guard let app = NSWorkspace.shared.frontmostApplication else { return nil }; return .init(name: app.localizedName ?? "", bundleID: app.bundleIdentifier ?? "") }
+}
+
+struct ScopedFileSearchTool: Tool {
+    let descriptor = ToolDescriptor(id: "files.search", description: "Search accessible files in Documents, Downloads and Desktop using local Spotlight names, metadata and optionally Spotlight content. mode semantic searches Sotto’s automatic local content cache, with Spotlight content fallback while it warms up. Index coverage varies. Returns ranked matches; ask the user to choose when ambiguous. Excluded folders are omitted.", properties: [
+        "name": textProperty("Filename or content phrase; .pdf for recent PDFs"),
+        "mode": textProperty("Search mode", choices: ["filename", "content", "semantic"]),
+        "extension": textProperty("Optional file extension without dot, or empty"),
+        "modified_since": textProperty("Optional ISO8601 earliest modification timestamp with time zone, or empty")
+    ], required: ["name", "mode", "extension", "modified_since"], risk: .read, capabilities: [.files])
+    func execute(arguments: JSONValue) async throws -> ToolResult {
+        try descriptor.validate(arguments)
+        let name = arguments.object?["name"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let ext = arguments.object?["extension"]?.string ?? ""
+        let modified = arguments.object?["modified_since"]?.string ?? ""
+        let date = modified.isEmpty ? nil : ISO8601DateFormatter().date(from: modified)
+        guard !name.isEmpty, ext.count <= 16, ext.allSatisfy({ $0.isLetter || $0.isNumber }), modified.isEmpty || date != nil else { throw ToolError.invalid("Provide a search phrase, simple extension and valid modification date") }
+        if arguments.object?["mode"]?.string == "semantic" {
+            let cached = try await LocalDocumentIndex.shared.search(query: name, fileExtension: ext, modifiedSince: date)
+            if let matches = FileSearchResults.decode(cached.data), !matches.files.isEmpty { return cached }
+            // Spotlight is already indexed; never send the user to a manual setup page
+            // just because Sotto's richer local cache is still warming up.
+            return try await SpotlightSearch().search(name, scopes: nil, content: true, fileExtension: ext, modifiedSince: date)
+        }
+        return try await SpotlightSearch().search(name, scopes: nil, content: arguments.object?["mode"]?.string == "content", fileExtension: ext, modifiedSince: date)
+    }
 }

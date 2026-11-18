@@ -41,6 +41,24 @@ private struct CompoundProbeTool: SottoTools.Tool {
         throw ToolError.invalid("The test request only authorizes fixture tools")
     }
 }
+private struct CorrectedReasoningFolder: SottoTools.Tool {
+    let descriptor: ToolDescriptor
+    let probe: CompoundActionProbe
+    func execute(arguments: JSONValue) async throws -> ToolResult {
+        try descriptor.validate(arguments)
+        let path = try XCTUnwrap(arguments.object?["path"]?.string)
+        await probe.record(path)
+        return ToolResult("Opened \((path as NSString).lastPathComponent) in Finder")
+    }
+}
+private struct DocumentFixtureTool: SottoTools.Tool {
+    let descriptor: ToolDescriptor
+    let reader: any SottoTools.Tool
+    func execute(arguments: JSONValue) async throws -> ToolResult {
+        guard descriptor.id == "read_document" else { throw ToolError.denied("This fixture only authorizes reading its test document") }
+        return try await reader.execute(arguments: arguments)
+    }
+}
 final class OnDeviceResponseTests: XCTestCase, @unchecked Sendable {
     let folder = ToolDescriptor(id: "open_folder", description: "Open folder", properties: ["path": textProperty("Path")], required: ["path"], risk: .reversible, capabilities: [.files])
     func testMalformedProviderArgumentsHaveActionableContentFreeError() {
@@ -76,6 +94,21 @@ final class OnDeviceResponseTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(output.first?.object?["content"]?.string?.contains("stopped") == true)
     }
     #if canImport(FoundationModels)
+    func testOnDeviceDocumentProjectionIsBoundedAndMarkedPartial() throws {
+        guard #available(macOS 26, *) else { throw XCTSkip("Requires Foundation Models") }
+        let result = ToolResult("Read Notes", data: .object(["text": .string(String(repeating: "a", count: 3000) + "EXCLUDED-TAIL"), "truncated": .bool(false)]))
+        let input: [JSONValue] = [
+            .object(["role": .string("user"), "content": .string("Summarize Notes")]),
+            .object(["type": .string("function_call"), "call_id": .string("read"), "name": .string("read_document"), "arguments": .string("{\"path\":\"/tmp/Notes.txt\"}")]),
+            .object(["type": .string("function_call_output"), "call_id": .string("read"), "output": .string(result.encoded)])
+        ]
+        let prompt = try LocalAction.prompt(input: input)
+        XCTAssertFalse(prompt.contains("EXCLUDED-TAIL"))
+        XCTAssertTrue(prompt.contains("excerpt only"))
+        XCTAssertTrue(prompt.contains("reading is not a summary"))
+        XCTAssertTrue(prompt.contains("actual document facts"))
+        XCTAssertTrue(prompt.contains("untrusted"))
+    }
     func testStructuredArgumentsPreserveQuotesUnicodeAndNewlinesWithoutParsingText() throws {
         guard #available(macOS 26, *) else { throw XCTSkip("Requires Foundation Models") }
         let path = "/Users/test/Recipe “book”/a\\b\nfile.pdf"
@@ -144,6 +177,16 @@ final class OnDeviceResponseTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(prompt.contains("Earlier Sotto: Opened Downloads."))
         XCTAssertTrue(prompt.contains("Actions already completed in this turn; do not repeat:\nNone"))
     }
+    func testLiveOnDeviceCorrectionDoesNotExecuteWithdrawnDestination() async throws {
+        guard ProcessInfo.processInfo.environment["SOTTO_ONDEVICE_TEST"] == "1" else { throw XCTSkip("Opt-in: real local reasoning with fixture tools, no desktop actions") }
+        guard #available(macOS 26, *), OnDeviceIntelligence.available else { throw XCTSkip("On-device intelligence unavailable") }
+        let probe = CompoundActionProbe()
+        let registry = ToolRegistry([CorrectedReasoningFolder(descriptor: folder, probe: probe)])
+        let runtime = AgentRuntime(registry: registry, gate: AuthorizationGate())
+        _ = try await runtime.run("Open Downloads—actually open Documents instead", provider: OnDeviceProvider()) { _ in }
+        let paths = await probe.calls
+        XCTAssertEqual(paths, ["~/Documents"], "Only the final intent may execute, including after result verification")
+    }
     func testLiveOnDeviceActionGenerationWithoutExecution() async throws {
         guard ProcessInfo.processInfo.environment["SOTTO_ONDEVICE_TEST"] == "1" else { throw XCTSkip("Opt-in: real on-device generation, no action execution") }
         guard #available(macOS 26, *), OnDeviceIntelligence.available else { throw XCTSkip("On-device intelligence unavailable") }
@@ -154,6 +197,45 @@ final class OnDeviceResponseTests: XCTestCase, @unchecked Sendable {
         let call = try XCTUnwrap(ToolCall(item: XCTUnwrap(output.first)))
         XCTAssertEqual(call.name, "open_folder")
         XCTAssertEqual(call.arguments.object?["path"]?.string, "~/Documents")
+    }
+    func testLiveOnDeviceCalendarCreationUsesExplicitDatesWithoutWritingCalendar() async throws {
+        guard ProcessInfo.processInfo.environment["SOTTO_ONDEVICE_TEST"] == "1" else { throw XCTSkip("Opt-in: real Apple generation, no Calendar writes") }
+        guard #available(macOS 26, *), OnDeviceIntelligence.available else { throw XCTSkip("On-device intelligence unavailable") }
+        let tools = NativeTools.registry().descriptors
+        var output: [JSONValue] = []
+        for try await event in OnDeviceProvider().stream(input: [.object(["role": .string("user"), "content": .string("Create a calendar event called Planning on December 1, 2026 from 2 PM to 3 PM in America/Chicago. Do not invite anyone.")])], tools: tools, instructions: "Use create_calendar_event for the explicit personal event. Start and end are ISO8601 including timezone; America/Chicago is UTC-06:00 on December 1, 2026. Propose the action without claiming execution.") {
+            if case .output(let items) = event { output = items }
+        }
+        let call = try XCTUnwrap(ToolCall(item: XCTUnwrap(output.first)))
+        XCTAssertEqual(call.name, "create_calendar_event")
+        XCTAssertEqual(call.arguments.object?["title"], .string("Planning"))
+        let formatter = ISO8601DateFormatter()
+        XCTAssertEqual(call.arguments.object?["start"]?.string.flatMap(formatter.date(from:)), formatter.date(from: "2026-12-01T14:00:00-06:00"))
+        XCTAssertEqual(call.arguments.object?["end"]?.string.flatMap(formatter.date(from:)), formatter.date(from: "2026-12-01T15:00:00-06:00"))
+    }
+    func testLiveOnDeviceSummarizesActualRequestedFixtureDocument() async throws {
+        guard ProcessInfo.processInfo.environment["SOTTO_ONDEVICE_TEST"] == "1" else { throw XCTSkip("Opt-in: local Apple summary of a generated fixture, no personal documents") }
+        guard #available(macOS 26, *), OnDeviceIntelligence.available else { throw XCTSkip("On-device intelligence unavailable") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Sotto-Fixture-\(UUID().uuidString).txt")
+        try Data("Project Maple has a budget of 200 dollars. The deadline is Friday. The team must review the notes before the deadline.".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let registry = NativeTools.registry(), reader = try registry.tool("read_document")
+        let runtime = AgentRuntime(registry: ToolRegistry(registry.descriptors.map { DocumentFixtureTool(descriptor: $0, reader: reader) }), gate: AuthorizationGate())
+        actor Collector {
+            var text = ""
+            var reads = 0
+            func accept(_ event: AgentEvent) {
+                if case .text(let text) = event { self.text += text }
+                if case .result(let tool, _) = event, tool == "read_document" { reads += 1 }
+                if case .failure(_, let reason) = event { XCTFail(reason) }
+            }
+        }
+        let collector = Collector()
+        _ = try await runtime.run("Read and summarize this document in one sentence: \(file.path)", provider: OnDeviceProvider()) { await collector.accept($0) }
+        let reads = await collector.reads, summary = await collector.text
+        XCTAssertEqual(reads, 1)
+        XCTAssertTrue(summary.lowercased().contains("friday"), "Missing actual document fact: \(summary)")
+        XCTAssertTrue(summary.contains("200"), "Missing actual document budget: \(summary)")
     }
     func testLiveOnDeviceConversationalReplyAvoidsRoboticStatusPhrasing() async throws {
         guard ProcessInfo.processInfo.environment["SOTTO_ONDEVICE_TEST"] == "1" else { throw XCTSkip("Opt-in: real on-device generation, no action execution") }

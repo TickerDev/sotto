@@ -16,10 +16,10 @@ public final class KeychainCredentials: CredentialStorage, Sendable {
     private let readOperation: @Sendable () throws -> String?
     private let saveOperation: @Sendable (String) throws -> Void
     private let containsOperation: @Sendable () throws -> Bool
-    public init() {
-        readOperation = { try KeychainStore.read() }
-        saveOperation = { try KeychainStore.save($0) }
-        containsOperation = { try KeychainStore.containsWithoutPrompt() }
+    public init(account: String = "openai") {
+        readOperation = { try KeychainStore.read(credentialAccount: account) }
+        saveOperation = { try KeychainStore.save($0, credentialAccount: account) }
+        containsOperation = { try KeychainStore.containsWithoutPrompt(credentialAccount: account) }
     }
     init(read: @escaping @Sendable () throws -> String?, save: @escaping @Sendable (String) throws -> Void, contains: @escaping @Sendable () throws -> Bool) {
         readOperation = read; saveOperation = save; containsOperation = contains
@@ -53,13 +53,13 @@ private final class CredentialCancellation: @unchecked Sendable {
 
 extension KeychainStore {
     /// Inspect metadata at launch without reading the secret or opening an authorization dialog.
-    static func containsWithoutPrompt() throws -> Bool {
+    static func containsWithoutPrompt(credentialAccount: String = "openai") throws -> Bool {
         let context = LAContext()
         context.interactionNotAllowed = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching([
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service, kSecAttrAccount: account,
+            kSecAttrService: service, kSecAttrAccount: credentialAccount,
             kSecReturnAttributes: true, kSecMatchLimit: kSecMatchLimitOne,
             kSecUseAuthenticationContext: context
         ] as CFDictionary, &result)

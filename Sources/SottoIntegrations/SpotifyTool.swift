@@ -52,3 +52,16 @@ struct SpotifyTool: Tool {
         return try action.result(output)
     }
 }
+
+struct MediaPlaybackTool: Tool {
+    let descriptor = ToolDescriptor(id: "media.playPause", description: "Play, pause or toggle Spotify using its supported AppleScript interface. Other media applications are not supported.", properties: ["action": textProperty("Playback action", choices: ["play", "pause", "toggle"])], required: ["action"], risk: .reversible, capabilities: [.automation])
+    func execute(arguments: JSONValue) async throws -> ToolResult {
+        try descriptor.validate(arguments)
+        var action = arguments.object?["action"]?.string ?? ""
+        if action == "toggle" {
+            let current = try await SpotifyTool().execute(arguments: .object(["action": .string("current")]))
+            action = current.summary.lowercased().hasPrefix("playing") ? "pause" : "play"
+        }
+        return try await SpotifyTool().execute(arguments: .object(["action": .string(action)]))
+    }
+}

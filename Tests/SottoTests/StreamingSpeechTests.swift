@@ -138,6 +138,11 @@ final class StreamingSpeechTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(trace.milliseconds["microphoneToFirstPartialMs"]!, 400, accuracy: 0.001)
         XCTAssertEqual(trace.milliseconds["inputEndToFinalMs"]!, 100, accuracy: 0.001)
         XCTAssertNil(trace.milliseconds["activationToVerifiedCompletionMs"])
+        XCTAssertNil(trace.milliseconds["inputEndToFirstActionMs"])
+        trace.record(.firstAction, at: 12.3); trace.record(.verifiedCompletion, at: 12.8)
+        XCTAssertEqual(trace.milliseconds["inputEndToFirstActionMs"]!, 300, accuracy: 0.001)
+        XCTAssertEqual(trace.milliseconds["finalTranscriptToFirstActionMs"]!, 200, accuracy: 0.001)
+        XCTAssertEqual(trace.milliseconds["inputEndToVerifiedCompletionMs"]!, 800, accuracy: 0.001)
     }
     @MainActor func testToggleShortcutUsesPressesAndIgnoresReleases() throws {
         let shortcut = GlobalShortcut(); shortcut.toggleMode = true

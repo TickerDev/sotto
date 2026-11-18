@@ -5,6 +5,9 @@ enum VoiceTimingLabels {
         case "activationToFirstPartialMs": "First live words"
         case "microphoneToFirstPartialMs": "Microphone to first words"
         case "inputEndToFinalMs": "Finishing transcription"
+        case "inputEndToFirstActionMs": "Send to first action"
+        case "inputEndToVerifiedCompletionMs": "Send to task complete"
+        case "finalTranscriptToFirstActionMs": "Reasoning to first action"
         case "activationToFirstActionMs": "First action"
         case "activationToVerifiedCompletionMs": "Task complete"
         default: key

@@ -17,7 +17,7 @@ public struct ToolCall: Sendable {
     public init?(item: JSONValue) throws {
         guard let obj = item.object, obj["type"]?.string == "function_call" else { return nil }
         guard let id = obj["call_id"]?.string, let name = obj["name"]?.string, let arguments = obj["arguments"]?.string, let data = arguments.data(using: .utf8) else { throw ToolError.invalid("Malformed tool call") }
-        self.id = id; self.name = name
+        self.id = id; self.name = name.replacingOccurrences(of: "__", with: ".")
         do { self.arguments = try JSONDecoder().decode(JSONValue.self, from: data) }
         catch { throw IntelligenceResponseError.invalidAction }
         guard self.arguments.object != nil else { throw IntelligenceResponseError.invalidAction }
@@ -64,8 +64,13 @@ public struct OpenAIProvider: ReasoningProvider {
                 do {
                     guard Self.supportsTools(model) else { throw ToolError.unavailable("This model is not verified for tool calling in Sotto. Choose a supported model.") }
                     var r = request("responses"); r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    let definitions: [JSONValue] = tools.map { .object(["type": .string("function"), "name": .string($0.id), "description": .string($0.description), "parameters": $0.inputSchema, "strict": .bool(true)]) }
-                    r.httpBody = try JSONEncoder().encode(JSONValue.object(["model": .string(model), "input": .array(input), "instructions": .string(instructions), "tools": .array(definitions), "stream": .bool(true), "store": .bool(false), "parallel_tool_calls": .bool(false), "max_output_tokens": .number(2048)]))
+                    let definitions: [JSONValue] = tools.map { .object(["type": .string("function"), "name": .string($0.providerName), "description": .string($0.description), "parameters": $0.inputSchema, "strict": .bool(false)]) }
+                    r.httpBody = try JSONEncoder().encode(JSONValue.object(["model": .string(model), "input": .array(input.map { item in
+                        guard var object = item.object, object["type"]?.string == "function_call",
+                              let name = object["name"]?.string else { return item }
+                        object["name"] = .string(name.replacingOccurrences(of: ".", with: "__"))
+                        return .object(object)
+                    }), "instructions": .string(instructions), "tools": .array(definitions), "stream": .bool(true), "store": .bool(false), "parallel_tool_calls": .bool(false), "max_output_tokens": .number(2048)]))
                     let (bytes, response) = try await session.bytes(for: r); try Self.check(response)
                     for try await line in bytes.lines {
                         try Task.checkCancellation()

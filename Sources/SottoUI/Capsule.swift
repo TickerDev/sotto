@@ -10,6 +10,7 @@ import OSLog
 public struct CapsuleView: View {
     @Bindable var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let preview: Bool
     private let maximumSize: CGSize
     private let sizeChanged: (CGSize) -> Void
@@ -43,15 +44,7 @@ public struct CapsuleView: View {
         .scrollBounceBehavior(.basedOnSize)
         .frame(width: shellWidth, height: viewportHeight)
         .floatingGlass(radius: 26)
-        .voiceGlow(
-            type: .standard,
-            levelProvider: {
-                guard model.state == .listening else { return 0 }
-                return min(1, Double(model.levels.last ?? 0) * 1.6)
-            },
-            active: model.state == .listening,
-            cornerRadius: 26
-        )
+        .modifier(CapsuleListeningEffect(model: model, enabled: !reduceMotion && !reduceTransparency))
         .shadow(color: .black.opacity(0.16), radius: 18, x: 0, y: 8)
         .padding(28)
         .onPreferenceChange(CapsuleContentHeight.self) { height in
@@ -62,6 +55,8 @@ public struct CapsuleView: View {
         .onChange(of: maximumSize) { _, _ in sizeChanged(CGSize(width: shellWidth + 56, height: viewportHeight + 56)) }
         .animation(reduceMotion || model.state == .listening ? nil : .spring(duration: 0.32, bounce: 0.08), value: model.state)
         .disabled(preview)
+        .onHover { if !preview { model.setFeedbackInteraction($0) } }
+        .onChange(of: model.state) { _, state in if !preview { CapsuleAccessibility.announce(state: state, status: model.status) } }
         .onExitCommand { if !preview { model.cancel() } }
     }
 
@@ -74,7 +69,7 @@ public struct CapsuleView: View {
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace, options: .nonRepeating))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.status).font(.system(size: 13, weight: .semibold)).lineLimit(2)
+                    Text(model.status).font(.system(size: 13, weight: .semibold)).lineLimit(2).accessibilityAddTraits(.isHeader)
                     Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
@@ -104,8 +99,19 @@ public struct CapsuleView: View {
                         Button("Approve once") { model.resolveApproval(true) }.buttonStyle(.borderedProminent)
                     }
                 }.transition(.opacity)
+            } else if let page = model.browserPage {
+                BrowserPageResultsView(page: page, answer: model.reply, openLink: model.openBrowserLink)
+            } else if !model.researchSources.isEmpty {
+                ResearchResultsView(sources: model.researchSources, answer: model.reply)
+            } else if !model.webImages.isEmpty {
+                FeaturedImageView(images: model.webImages, save: model.downloadWebResult, showGalleryInitially: model.imagePresentation == "gallery")
+                    .id(model.webImages.first?.object?["source"]?.string ?? "images")
+            } else if !model.webDocuments.isEmpty {
+                DocumentResultsView(documents: model.webDocuments, download: model.downloadWebResult)
+            } else if !model.webResults.isEmpty {
+                WebResultsView(results: model.webResults, provider: model.webProvider, scope: model.webScope)
             } else if !model.fileMatches.isEmpty {
-                FileMatchesView(matches: model.fileMatches) { match, reveal in model.openFileMatch(match, reveal: reveal) }
+                FileMatchesView(matches: model.fileMatches, select: { match, reveal in model.openFileMatch(match, reveal: reveal) }, summarize: { model.summarizeFileMatch($0) })
             } else if model.state == .listening && !model.transcript.isEmpty {
                 CapsuleBody {
                     (Text(model.confirmedSpeech).foregroundColor(.primary) + Text(model.provisionalSpeech).foregroundColor(.secondary))
@@ -121,6 +127,9 @@ public struct CapsuleView: View {
             }
             if model.state == .listening {
                 HStack(spacing: 12) {
+                    if reduceMotion || reduceTransparency {
+                        ProgressView(value: Double(model.levels.last ?? 0)).progressViewStyle(.linear).frame(width: 48).accessibilityHidden(true)
+                    }
                     if model.transcript.isEmpty {
                         Text("Speak now…")
                             .font(.system(size: 12))
@@ -186,7 +195,7 @@ public struct CapsuleView: View {
     @ViewBuilder private var dismissButton: some View {
         dismissControl
             .overlay {
-                if let window = model.autoDismissWindow {
+                if !reduceMotion, let window = model.autoDismissWindow {
                     AutoDismissRing(window: window)
                         .padding(-1)
                         .allowsHitTesting(false)
@@ -207,6 +216,18 @@ public struct CapsuleView: View {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24)
             }.buttonStyle(.borderless).help("Cancel (Esc)").accessibilityLabel("Cancel Sotto")
         }
+    }
+}
+
+private struct CapsuleListeningEffect: ViewModifier {
+    let model: AppModel
+    let enabled: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled {
+            content.voiceGlow(type: .standard, levelProvider: {
+                model.state == .listening ? min(1, Double(model.levels.last ?? 0) * 1.6) : 0
+            }, active: model.state == .listening, cornerRadius: 26)
+        } else { content }
     }
 }
 
@@ -248,6 +269,8 @@ public final class VoicePanel: NSPanel {
     private var measuredSize = CGSize(width: 456, height: 156)
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
+    public override func becomeKey() { super.becomeKey(); if !preview { model?.setFeedbackInteraction(true, keyboard: true) } }
+    public override func resignKey() { super.resignKey(); if !preview { model?.setFeedbackInteraction(false, keyboard: true) } }
 
     @MainActor public init(model: AppModel, preview: Bool = false) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 456, height: 150), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

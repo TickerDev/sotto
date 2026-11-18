@@ -1,31 +1,37 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Speech
 import EventKit
+import Contacts
+import SottoIntegrations
 import Observation
 import SottoAudio
 import IOKit.hidsystem
 import OSLog
 
 public enum PermissionKind: String, CaseIterable, Sendable, Identifiable {
-    case microphone, speech, keyboard, reminders, calendar, automation
+    case microphone, speech, keyboard, reminders, calendar, contacts, appleNotes, automation, accessibility
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .microphone: "Microphone"; case .speech: "Speech Recognition"; case .keyboard: "Input Monitoring"; case .reminders: "Reminders"; case .calendar: "Calendar"; case .automation: "Spotify Automation" }
+        switch self { case .microphone: "Microphone"; case .speech: "Speech Recognition"; case .keyboard: "Input Monitoring"; case .reminders: "Reminders"; case .calendar: "Calendar"; case .contacts: "Contacts"; case .appleNotes: "Apple Notes"; case .automation: "Automation"; case .accessibility: "Accessibility" }
     }
     public var detail: String {
         switch self {
         case .microphone: "Captures audio only when you start listening."
         case .speech: "Needed for older Apple Speech recognition. Modern on-device transcription and OpenAI Realtime use microphone permission instead."
         case .keyboard: "Enables your global shortcut. Optional when using the menu bar."
+        case .appleNotes: "Reads and changes requested Apple Notes through macOS Automation. Changes require review."
+        case .contacts: "Finds people you ask about. Saving contact changes requires review; account access is requested only when needed."
         case .reminders: "Requested when you first create or list reminders."
-        case .calendar: "Requested when you ask about your calendar. Sotto does not change events."
-        case .automation: "Requested by a Spotify command. macOS manages access per application."
+        case .calendar: "Requested when you ask about your calendar or add an event. Sotto never sends invitations."
+        case .automation: "Requested when controlling macOS settings like Dark Mode and Dock preferences, or Spotify. macOS manages access per application."
+        case .accessibility: "Requested for browser-page reading, selected text, window management and supported System Settings controls. Private page or selection content requires separate Sotto approval."
         }
     }
     public var settingsURL: URL {
         let pane: String
-        switch self { case .microphone: pane = "Privacy_Microphone"; case .speech: pane = "Privacy_SpeechRecognition"; case .keyboard: pane = "Privacy_ListenEvent"; case .reminders: pane = "Privacy_Reminders"; case .calendar: pane = "Privacy_Calendars"; case .automation: pane = "Privacy_Automation" }
+        switch self { case .microphone: pane = "Privacy_Microphone"; case .speech: pane = "Privacy_SpeechRecognition"; case .keyboard: pane = "Privacy_ListenEvent"; case .reminders: pane = "Privacy_Reminders"; case .calendar: pane = "Privacy_Calendars"; case .contacts: pane = "Privacy_Contacts"; case .appleNotes, .automation: pane = "Privacy_Automation"; case .accessibility: pane = "Privacy_Accessibility" }
         return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!
     }
 }
@@ -81,8 +87,11 @@ struct KeyboardPermissionSnapshot: Equatable {
         keyboard = snapshot
         states[.keyboard] = snapshot.state
         states[.reminders] = switch EKEventStore.authorizationStatus(for: .reminder) { case .fullAccess: .allowed; case .denied: .denied; case .restricted: .restricted; default: .notRequested }
+        states[.contacts] = switch CNContactStore.authorizationStatus(for: .contacts) { case .authorized: .allowed; case .denied: .denied; case .restricted: .restricted; case .notDetermined: .notRequested; default: .unavailable }
         states[.calendar] = Self.calendarState(EKEventStore.authorizationStatus(for: .event))
+        states[.appleNotes] = switch AppleNotesAuthorization.status() { case .allowed: .allowed; case .notRequested: .notRequested; case .denied: .denied; case .unavailable: .unavailable }
         states[.automation] = .systemManaged
+        states[.accessibility] = AXIsProcessTrusted() ? .allowed : .notRequested
         changed?()
     }
     static func calendarState(_ status: EKAuthorizationStatus) -> PermissionState {
@@ -102,11 +111,20 @@ struct KeyboardPermissionSnapshot: Equatable {
         case .keyboard: if !CGRequestListenEventAccess() { openSettings(kind) }
         case .reminders:
             do { _ = try await EKEventStore().requestFullAccessToReminders() } catch { requestFailed = true }
+        case .contacts:
+            do { _ = try await CNContactStore().requestAccess(for: .contacts) } catch { requestFailed = true }
         case .calendar:
             do { _ = try await EKEventStore().requestFullAccessToEvents() } catch { requestFailed = true }
+        case .appleNotes: _ = await AppleNotesAuthorization.request()
         case .automation: openSettings(kind)
+        case .accessibility:
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            if !AXIsProcessTrustedWithOptions(options) { openSettings(kind) }
         }
         refresh()
+        if kind == .accessibility {
+            return state(.accessibility) == .allowed ? .allowed : .settingsRequired
+        }
         return PermissionRequestOutcome.afterRequest(state: state(kind), returnedError: requestFailed)
     }
     public func openSettings(_ kind: PermissionKind) {

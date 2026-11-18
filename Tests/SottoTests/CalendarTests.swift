@@ -64,7 +64,7 @@ final class CalendarTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(result.summary.contains("Day off"), "Activity summaries need not retain event titles")
         guard case .array(let events) = result.data.object?["events"] else { return XCTFail("Missing event data") }
         XCTAssertEqual(events.compactMap { $0.object?["title"]?.string }, ["Day off", "First", "Later"])
-        XCTAssertEqual(Set(events[0].object!.keys), Set(["title", "start", "end", "all_day"]))
+        XCTAssertEqual(Set(events[0].object!.keys), Set(["title", "start", "end", "all_day", "id"]))
     }
 
     func testEmptyAndCappedAgendasAreHonest() async throws {

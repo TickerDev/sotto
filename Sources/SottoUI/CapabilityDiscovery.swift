@@ -41,10 +41,12 @@ public struct DeviceCapabilities: Sendable {
             : DiscoveredCapability(id: "speech", title: "Listen with OpenAI Realtime", state: !remoteSpeechConfigured ? .setupRequired : permissions.state(.microphone) == .allowed ? .ready : .permissionRequired, detail: "Streams audio to OpenAI while you explicitly listen. Requires audio permission, an API key, network and account access; configured in Voice.")
         var capabilities = [
             DiscoveredCapability(id: "folders", title: "Open your folders", state: .ready, detail: "Works on this Mac without an AI connection."),
-            DiscoveredCapability(id: "calendar", title: "See what’s on your calendar", state: permissions.state(.calendar) == .allowed ? .ready : .permissionRequired, detail: "Ask “What’s on my calendar tomorrow?” No AI connection needed. Sotto asks for access the first time and never changes events."),
+            DiscoveredCapability(id: "calendar", title: "Check and add calendar events", state: permissions.state(.calendar) == .allowed ? .ready : .permissionRequired, detail: "Ask about tomorrow, or “Schedule Review tomorrow at 5 PM for 30 minutes.” These work without AI. Sotto asks for access when needed; no invitations, edits or deletion."),
             DiscoveredCapability(id: "files", title: "Find files", state: .ready, detail: "Searches Spotlight’s index. Results depend on indexing and file access."),
             DiscoveredCapability(id: "apps", title: "Open applications", state: .ready, detail: "Uses installed applications. Natural-language requests need intelligence."),
             DiscoveredCapability(id: "reminders", title: "Access your reminders", state: permissions.state(.reminders) == .allowed ? .ready : .permissionRequired, detail: permissions.state(.reminders) == .allowed ? "Access allowed; a writable list is needed to create reminders." : "Sotto asks for access when you request a reminder."),
+            DiscoveredCapability(id: "settings", title: "Control macOS settings", state: .ready, detail: "Night Shift, True Tone, brightness, volume, Wi-Fi, and Bluetooth run directly. Dark Mode and Dock ask for Automation on first use."),
+            DiscoveredCapability(id: "settings_ui", title: "Control System Settings panes", state: permissions.state(.accessibility) == .allowed ? .ready : .permissionRequired, detail: permissions.state(.accessibility) == .allowed ? "Accessibility enabled for Low Power Mode and System Settings toggles." : "Sotto asks for Accessibility access when changing UI-only System Settings toggles."),
             voice
         ]
         if installed.contains("com.spotify.client") {

@@ -57,6 +57,12 @@ Preparation is limited to two attempts per recording, each with an eight-second 
 
 `SpeechRecognitionProvider` remains the backend boundary: start with live updates, finish with a confirmed transcript, cancel and declare legacy speech-authorization requirements. Future Whisper/cloud implementations can use it without changing tool execution policy. The optional [OpenAI Realtime adapter](REALTIME-TRANSCRIPTION.md) uses this same boundary.
 
+## Bounded modern backend startup
+
+After microphone permission is granted, modern Apple backend initialization has an eight-second deadline covering worker locale resolution, format negotiation, analyzer preparation/start and first-buffer capture. Timeout returns a retryable error without waiting for a framework suspension that ignores task cancellation. Cancellation likewise returns promptly. The first result wins exactly once; failure invalidates the recording token synchronously and schedules backend cleanup. A late framework return still checks session ownership before installing state. macOS permission dialogs are outside this deadline.
+
+This bounds the caller's wait, not the duration of an Apple API or blocked hardware driver. Cleanup can continue after the error, and the earlier Apple backend capability/asset-selection query remains separate. No partial transcript is submitted by this failure path.
+
 ## Measurement
 
 `VoiceLatencyTrace` uses monotonic uptime. Physical shortcut activation uses the event timestamp; button activation uses the invocation time. Voice → Advanced shows the most recent measured phases. Unified logs under `org.sotto.mac`, category `voice-timing`, contain durations only, never transcripts or keys.
@@ -69,8 +75,26 @@ Preparation is limited to two attempts per recording, each with an eight-second 
 | `inputEndToFinalMs` | Explicit Send/release handling to confirmed transcription; this is not acoustic last-word detection |
 | `activationToFirstActionMs` | Activation to first runtime tool-execution state |
 | `activationToVerifiedCompletionMs` | Activation to successful request completion with actual tool-result evidence |
+| `inputEndToFirstActionMs` | Send/release to first runtime action, excluding speaking time |
+| `inputEndToVerifiedCompletionMs` | Send/release to verified successful completion |
+| `finalTranscriptToFirstActionMs` | Final recognition to first runtime action |
+
+Repeated physical sessions can be exported without transcript/audio content:
+
+```sh
+python3 Scripts/voice_benchmark.py --last 15m > build/voice-benchmark.json
+python3 Scripts/voice_benchmark.py --input build/voice-log.ndjson
+```
+
+The report contains at most 100 recent activation IDs, activation-relative phase durations, measured Send/final/action intervals and terminal outcomes. It reads only Sotto's `voice-timing` log category and excludes test processes. No recording is started by this command. Only sessions whose activation marker appears in the selected window are included; truncated sessions remain incomplete. Logs predating this instrumentation produce no samples. A transcription-only result has no verified action; canceled, failed, replaced, questioning, intelligence-setup and changed-input sessions retain distinct outcomes. Route recovery ends the original sample so its discarded partial text cannot masquerade as a successful benchmark. Recovery behavior continues normally.
+
+For physical acceptance, record the OS/hardware, speech backend/language, shortcut mode and microphone/output route alongside the report. Run the first attempt after app launch separately from five subsequent repetitions, then test correction, Escape during startup/finalization and another successful attempt. App relaunch alone does not establish an uncached system speech model. Do not pool transcription-only checks with voice-to-action checks. Save actual observations of capsule behavior and external tool results; timings alone do not certify them.
+
+Send/release time is recorded immediately, including when startup is still pending. The remaining startup wait is part of Send-to-final timing.
 
 Missing phases remain absent. A spoken answer or canceled recording is not reported as verified task completion. The panel is ordered before asynchronous speech startup; microphone/model initialization still takes time.
+
+Audio startup overlaps audio-format negotiation and analyzer preparation after explicit activation; bounded captured PCM waits for the analyzer. Canceled or replaced locale/format/analyzer lookups cannot install state into a newer recording. A pending first-buffer capture is canceled before startup task teardown waits for it; finalization retains its own result reader. Native requests never wait for speculative inference. Apple tool selection uses capability descriptions and a short planning field; the selected argument schema is provided afterward, with no unused conversational reply generated before an action. See the November 16 response-latency entry in VALIDATION.md for measured results and rejected experiments.
 
 Validation on this Apple Silicon Mac with macOS 27/Xcode 27:
 

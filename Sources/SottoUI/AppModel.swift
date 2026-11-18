@@ -24,11 +24,23 @@ import OSLog
     public private(set) var provisionalSpeech = ""
     public private(set) var voiceTimings: [String: Double] = [:]
     private var voiceLatency: VoiceLatencyTrace?
+    private var documentDiscovery: Task<Void, Never>?
+    private var timerMaintenance: Task<Void, Never>?
+    private var timerWakeObserver: NSObjectProtocol?
     private var speechResourceCheck: Task<Void, Never>?
     public private(set) var modernSpeechReady = false
     private let voicePreparation = VoicePreparationController()
     private var awaitingVoicePreparation: Task<PreparedAgentTurn?, Never>?
     public var reply = ""
+    public private(set) var workflowVersion = UUID()
+    public private(set) var imagePresentation = "single"
+    public private(set) var webImages: [JSONValue] = []
+    public private(set) var webDocuments: [JSONValue] = []
+    public private(set) var researchSources: [JSONValue] = []
+    public private(set) var browserPage: JSONValue?
+    public private(set) var webProvider = ""
+    public private(set) var webScope = ""
+    public private(set) var webResults: [WebSearchResult] = []
     public private(set) var fileMatches: [FileSearchMatch] = []
     public private(set) var confirmedSummary = ""
     public var levels = [Float](repeating: 0, count: 36)
@@ -41,8 +53,10 @@ import OSLog
     private var intelligenceSetupExpiry: Task<Void, Never>?
     private var intelligenceSetupOperation = UUID()
     public var integrationRequest: IntegrationAccessRequest?
+    public private(set) var awaitingAccessibilityGrant = false
     private var integrationContinuation: CheckedContinuation<Result<Void, IntegrationAccessError>, Never>?
     private var integrationExpiry: Task<Void, Never>?
+    private var accessibilityPollTask: Task<Void, Never>?
     public var approval: Approval?
     public var paused = false
     public var activities: [Activity] = []
@@ -130,19 +144,39 @@ import OSLog
         context = []
     }
     private var hadFailure = false
+    private var failureRecovery: RecoveryAction?
     private var hasReadableResult = false
     private var evidence = ""
     @ObservationIgnored private let persistPreferences: Bool
     @ObservationIgnored private let onDeviceAvailable: @MainActor () -> Bool
-    public init(providerConnection: ProviderConnection = ProviderConnection(), localProviderConnection: LocalProviderConnection = LocalProviderConnection(), preferences: Preferences? = nil, startServices: Bool = true, onDeviceAvailable: @escaping @MainActor () -> Bool = { OnDeviceIntelligence.available }, registry: ToolRegistry = NativeTools.registry(), microphones: MicrophoneCatalog = MicrophoneCatalog(), speech: (any SpeechRecognitionProvider)? = nil, localRuntime: ManagedOllamaRuntime? = nil) {
+    @ObservationIgnored private let assistiveReadingEnabled: @MainActor () -> Bool
+    private var feedbackInteractionPaused = false
+    private var feedbackPointerInside = false
+    private var feedbackKeyboardFocus = false
+    public init(providerConnection: ProviderConnection = ProviderConnection(), localProviderConnection: LocalProviderConnection = LocalProviderConnection(), preferences: Preferences? = nil, startServices: Bool = true, onDeviceAvailable: @escaping @MainActor () -> Bool = { OnDeviceIntelligence.available }, registry: ToolRegistry? = nil, microphones: MicrophoneCatalog = MicrophoneCatalog(), speech: (any SpeechRecognitionProvider)? = nil, localRuntime: ManagedOllamaRuntime? = nil, assistiveReadingEnabled: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled || NSWorkspace.shared.isSwitchControlEnabled }) {
         self.localRuntime = localRuntime ?? ManagedOllamaRuntime(); self.managesLocalRuntime = startServices || localRuntime != nil
         self.microphones = microphones; self.speech = speech ?? AppleSpeechProvider(); self.usesInjectedSpeech = speech != nil
         self.providerConnection = providerConnection; self.localProviderConnection = localProviderConnection
         self.persistPreferences = startServices; self.onDeviceAvailable = onDeviceAvailable
+        self.assistiveReadingEnabled = assistiveReadingEnabled
         if let preferences { settings = preferences }
-        runtime = AgentRuntime(registry: registry, gate: gate)
+        weak var weakSelf: AppModel?
+        let resolvedRegistry = registry ?? NativeTools.registry(sottoSettings: AppSottoSettingsBridge { weakSelf }, webSearch: WebSearchConnection.provider)
+        runtime = AgentRuntime(registry: resolvedRegistry, gate: gate)
+        weakSelf = self
         microphones.changed = { [weak self] in self?.checkAudioRoute() }
         guard startServices else { return }
+        restoreTimers()
+        documentDiscovery = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                if LocalDocumentIndex.automaticEnabled {
+                    _ = try? await LocalDocumentIndex.shared.rebuild()
+                }
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
         do {
             let folder = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Sotto")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -155,13 +189,16 @@ import OSLog
         }
         permissions.changed = { [weak self] in self?.checkVoicePermissions() }
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { @Sendable [weak self] _ in
-            Task { @MainActor in self?.refreshEnvironment() }
+            Task { @MainActor in self?.refreshEnvironment(); self?.restoreTimers() }
         }
         sleptObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { @Sendable [weak self] _ in
             Task { @MainActor in
                 guard let self, [.listening, .transcribing].contains(self.state) else { return }
                 self.abortCapture("Your Mac went to sleep. Recording was discarded; start again after waking.")
             }
+        }
+        timerWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { @Sendable [weak self] _ in
+            Task { @MainActor in self?.restoreTimers() }
         }
         shortcut.pressed = { [weak self] in
             guard let self, !self.paused, !self.isEditingShortcut else { return false }
@@ -208,7 +245,7 @@ import OSLog
     public func applyAppearance() { NSApp.appearance = settings.appearance == "system" ? nil : NSAppearance(named: settings.appearance == "dark" ? .darkAqua : .aqua) }
     public func activate() { if state == .listening { endListening() } else { beginListening() } }
     public func beginListening(activation: VoiceActivation = .button, purpose: CapturePurpose = .command) {
-        fileMatches = []
+        fileMatches = []; webResults = []; webImages = []; webDocuments = []; researchSources = []; browserPage = nil
         beginCapture(activation: activation, purpose: purpose, recovering: false)
     }
     private func beginCapture(activation: VoiceActivation, purpose: CapturePurpose, recovering: Bool) {
@@ -221,7 +258,11 @@ import OSLog
             unavailableMicrophones = []; microphoneRecoveries = 0; retriedPreferredMicrophone = false
             captureDeadline = ContinuousClock.now.advanced(by: .seconds(55))
             let started = activation == .button ? ProcessInfo.processInfo.systemUptime : shortcut.activationTimestamp ?? ProcessInfo.processInfo.systemUptime
+            endVoiceTiming("replaced")
             voiceLatency = VoiceLatencyTrace(started: started); voiceTimings = [:]
+            if let trace = voiceLatency {
+                Logger(subsystem: "org.sotto.mac", category: "voice-timing").notice("sample session=\(trace.id.uuidString, privacy: .public) phase=activation elapsedMs=0")
+            }
         }
         cancelIntelligenceSetup()
         let activationTime = ContinuousClock.now
@@ -284,7 +325,7 @@ import OSLog
             }
         }
     }
-    public func endListening() { guard state == .listening else { return }; shortcut.resetGesture(); wantsListening = false; if recordingReady { finishRecording(id: sessionID) } }
+    public func endListening() { guard state == .listening else { return }; recordVoiceTiming(.inputEnded); shortcut.resetGesture(); wantsListening = false; if recordingReady { finishRecording(id: sessionID) } }
     private func finishRecording(id: UUID) {
         recordVoiceTiming(.inputEnded)
         recordingLimit?.cancel(); state = .transcribing; status = "Finishing transcription"
@@ -297,6 +338,7 @@ import OSLog
                 transcript = text; confirmedSpeech = text; provisionalSpeech = ""; activeMicrophone = nil
                 recordVoiceTiming(.finalTranscript)
                 if capturePurpose == .voiceCheck {
+                    endVoiceTiming("transcriptionOnly")
                     voiceCheck = .passed; state = .thinking; state = .responded
                     status = "Voice check complete"; reply = text; present?()
                 } else { submit(text) }
@@ -317,6 +359,26 @@ import OSLog
         // approval path as a normal spoken command. A microphone test never sends itself.
         submit(text)
     }
+    public func updateDocumentIndex(clear: Bool) {
+        submit(clear ? "Clear my local document index" : "Rebuild my approved local document folders", nativeAction: .toolAction(name: "files.index", arguments: .object(["action": .string(clear ? "clear" : "refresh")])))
+    }
+    public func resumeWorkflow(_ id: UUID, skipUncertain: Bool) {
+        submit("Continue workflow execution " + id.uuidString + (skipUncertain ? " after I checked the uncertain actions and chose to skip them" : ""),
+               nativeAction: .toolAction(name: "workflows.resume", arguments: .object(["id": .string(id.uuidString), "skip_uncertain": .bool(skipUncertain)])))
+    }
+    public func runSavedWorkflow(_ name: String) {
+        submit("Run my saved workflow: " + name, nativeAction: .toolAction(name: "workflows.run", arguments: .object(["name": .string(name), "steps": .array([])])))
+    }
+    public func openBrowserLink(_ reference: String, _ index: Int) {
+        guard !isBusy, browserPage?.object?["page_ref"]?.string == reference,
+              case .array(let links) = browserPage?.object?["links"],
+              links.contains(where: { $0.object?["link_id"] == .number(Double(index)) }) else { return }
+        submit("Open the link I selected from the approved browser page",
+               nativeAction: .toolAction(name: "browser.openLink", arguments: .object(["page_ref": .string(reference), "link_id": .number(Double(index))])))
+    }
+    public func downloadWebResult(_ url: String) {
+        submit("Download this explicitly selected file: " + url, nativeAction: .toolAction(name: "web.download", arguments: .object(["url": .string(url)])))
+    }
     public func submit(_ text: String) {
         submit(text, nativeAction: nil, fromVoice: state == .transcribing)
     }
@@ -324,16 +386,27 @@ import OSLog
         guard fileMatches.contains(match), !isBusy else { return }
         submit(reveal ? "Reveal \(match.name) in Finder" : "Open \(match.name)", nativeAction: .fileAction(path: match.path, reveal: reveal))
     }
+    public func summarizeFileMatch(_ match: FileSearchMatch) {
+        guard fileMatches.contains(match), DocumentTextFormats.supports(match.path), !isBusy else { return }
+        submit("Summarize \(match.path)")
+    }
     private func submit(_ text: String, nativeAction: NativeCommandProvider?, fromVoice: Bool = false) {
         guard !paused else { return }
+        let workflow = PersonalAutomation.workflow(for: text)
+        let workflowAction = workflow.map { NativeCommandProvider.toolAction(name: "workflows.run", arguments: .object(["name": .string($0.name), "steps": .array([])])) }
+        let alias = AliasCommand.resolve(text, aliases: AliasStore.all(), workflows: PersonalAutomation.workflows())
+        let aliasAction = alias.map { NativeCommandProvider.toolAction(name: $0.tool, arguments: $0.arguments) }
+        let collision = aliasAction != nil && workflowAction != nil && (aliasAction!.tool != workflowAction!.tool || aliasAction!.arguments != workflowAction!.arguments)
+        let clarification = collision ? NativeCommandProvider.toolAction(name: "ask_user", arguments: .object(["question": .string("That name matches both a remembered association and a saved workflow. Which one do you mean?")])) : nil
+        let resolvedNativeAction = nativeAction ?? clarification ?? aliasAction ?? workflowAction ?? WebResultFollowup.action(text, results: webResults)
         let prepared = fromVoice ? voicePreparation.take(for: text) : nil
         awaitingVoicePreparation?.cancel(); awaitingVoicePreparation = prepared
-        if !fromVoice { voicePreparation.cancel(); voiceLatency = nil }
+        if !fromVoice { voicePreparation.cancel(); endVoiceTiming("replaced") }
         cancelIntelligenceSetup()
         if let request = integrationRequest { resolveIntegration(request.id, allowed: false) }
         task?.cancel(); cancelAutoDismiss(); sessionID = UUID(); let id = sessionID
         confirmedSummary = ""; recovery = nil
-        fileMatches = []
+        fileMatches = []; webResults = []; webImages = []; webDocuments = []; researchSources = []; browserPage = nil
         let startedIdle = state == .idle
         let backend = settings.reasoningBackend, model = settings.model, localModel = settings.ollamaModel, endpoint = settings.ollamaEndpoint
         task = Task { [self] in
@@ -344,7 +417,7 @@ import OSLog
                 if startedIdle { archiveActiveConversation() }
                 let provider: any ReasoningProvider
                 var providerKey = ""
-                if let native = nativeAction ?? NativeCommandProvider(command: text) {
+                if let native = resolvedNativeAction ?? NativeCommandProvider(command: text) {
                     archiveActiveConversation(); provider = native; providerKey = voiceProviderKey("native")
                 } else if settings.automaticIntelligence {
                     if onDeviceAvailable() {
@@ -387,12 +460,17 @@ import OSLog
                     providerKey = voiceProviderKey("ollama|\(endpoint)|\(localModel)")
                 }
                 }
+                Logger(subsystem: "org.sotto.mac", category: "agent").notice("Submitting turn via \(providerKey.split(separator: "|").first.map(String.init) ?? "unknown", privacy: .public)")
                 try Task.checkCancellation()
                 guard sessionID == id else { return }
                 if Date().timeIntervalSince(lastInteraction) > 300 { context = []; archivedConversations = [] }
                 else if context.count > 100 { context = [] }
-                hadFailure = false; hasReadableResult = false; evidence = ""; confirmedSummary = ""; reply = ""; transcript = text; state = .thinking; status = "Thinking"; present?()
-                let firstStep = await withTaskCancellationHandler { await prepared?.value } onCancel: { prepared?.cancel() }
+                hadFailure = false; failureRecovery = nil; hasReadableResult = false; evidence = ""; confirmedSummary = ""; reply = ""; transcript = text; state = .thinking; status = "Thinking"; present?()
+                // A deterministic command must never wait behind a speculative
+                // model request. It uses the same runtime validation and tools.
+                let firstStep: PreparedAgentTurn?
+                if provider is NativeCommandProvider { prepared?.cancel(); firstStep = nil }
+                else { firstStep = await withTaskCancellationHandler { await prepared?.value } onCancel: { prepared?.cancel() } }
                 try Task.checkCancellation()
                 guard sessionID == id else { return }
                 let resultContext = try await runtime.run(text, context: context, previousConversations: archivedConversations, provider: provider, prepared: firstStep, providerKey: providerKey, prepare: { [weak self] descriptor in
@@ -403,20 +481,23 @@ import OSLog
                 guard sessionID == id, !Task.isCancelled else { return }
                 context = resultContext; lastInteraction = Date()
                 scheduleContextExpiry()
-                if state == .awaitingInput { return }
+                if state == .awaitingInput { endVoiceTiming("question"); return }
                 state = hadFailure ? .failed : evidence.isEmpty ? .responded : .completed
                 status = hadFailure ? "An action could not finish" : evidence.isEmpty ? "Sotto" : "Done"
+                if hadFailure, let failureRecovery { recovery = failureRecovery }
                 if !hadFailure && !evidence.isEmpty { recordVoiceTiming(.verifiedCompletion) }
+                endVoiceTiming(hadFailure ? "failed" : evidence.isEmpty ? "response" : "verified")
                 if !hadFailure && !fileMatches.isEmpty { status = "Found \(fileMatches.count) \(fileMatches.count == 1 ? "file" : "files")" }
                 if reply.isEmpty { reply = evidence }
                 if settings.audioFeedback { NSSound(named: hadFailure ? "Basso" : "Pop")?.play() }
-                if settings.notifications && !evidence.isEmpty { notify(evidence) }
+                if settings.notifications && !evidence.isEmpty && !hasReadableResult { notify(evidence) }
                 // Keep long results readable; only short confirmations and replies disappear automatically.
                 if !hasReadableResult && !hadFailure && (!evidence.isEmpty || !reply.isEmpty) && reply.count < 280 && evidence.count < 180 { scheduleDismiss() }
             } catch { if sessionID == id && !Task.isCancelled { fail(error) } }
         }
     }
     private func offerIntelligenceSetup(for text: String) {
+        endVoiceTiming("needsIntelligence")
         contextExpiry?.cancel()
         let id = pendingIntelligence.preserve(text, context: context)
         state = .failed; status = "Intelligence needed"; reply = "Connect intelligence to continue this request. Basic commands still work on this Mac."
@@ -439,10 +520,15 @@ import OSLog
         let now = ProcessInfo.processInfo.systemUptime
         guard trace.record(phase, at: now) else { return }
         voiceLatency = trace; voiceTimings = trace.milliseconds
-        Logger(subsystem: "org.sotto.mac", category: "voice-timing").notice("\(phase.rawValue, privacy: .public) activation ms: \((now - trace.started) * 1000)")
+        Logger(subsystem: "org.sotto.mac", category: "voice-timing").notice("sample session=\(trace.id.uuidString, privacy: .public) phase=\(phase.rawValue, privacy: .public) elapsedMs=\((now - trace.started) * 1000)")
         if phase == .finalTranscript, let interval = voiceTimings["inputEndToFinalMs"] {
             Logger(subsystem: "org.sotto.mac", category: "voice-timing").notice("Input end to final transcript ms: \(interval)")
         }
+    }
+    private func endVoiceTiming(_ outcome: String) {
+        guard let trace = voiceLatency else { return }
+        voiceLatency = nil
+        Logger(subsystem: "org.sotto.mac", category: "voice-timing").notice("sample session=\(trace.id.uuidString, privacy: .public) outcome=\(outcome, privacy: .public)")
     }
     private func voiceProviderKey(_ identity: String) -> String {
         identity + "|day:" + String(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)
@@ -595,6 +681,7 @@ import OSLog
         }
         switch event {
         case .state(let state, let text): self.state = state; status = text; reply = ""; if state == .executing { recordVoiceTiming(.firstAction) }
+        case .progress(let message): status = message
         case .text(let text): reply += text
         case .approval(let request): approval = request; state = .awaitingApproval; status = "Approve this action"; present?()
         case .question(let question):
@@ -602,14 +689,39 @@ import OSLog
             else { state = .awaitingInput; status = "A quick question"; reply = question }
             present?()
         case .result(let name, let result):
-            if name == "open_file" { fileMatches = [] }
+            if name.hasPrefix("workflows.") || name.hasPrefix("aliases.") { workflowVersion = UUID() }
+            if name == "open_file" { fileMatches = []; webResults = []; webImages = []; webDocuments = []; researchSources = []; browserPage = nil }
             if result.data.object?["agenda"] != nil { hasReadableResult = true }
-            if name == "find_files", let matches = FileSearchResults.decode(result.data) {
+            if name.hasPrefix("browser."), result.state == .success, result.data.object?["page_ref"] != nil {
+                browserPage = result.data
+                hasReadableResult = true
+            }
+            if name == "find_files" || name == "files.search", let matches = FileSearchResults.decode(result.data) {
                 fileMatches = Array(matches.files.prefix(20))
                 hasReadableResult = true
             }
-            settings.firstActionSucceeded = true; evidence = result.summary; confirmedSummary = result.summary; await record(name, result.summary, true)
-        case .failure(let name, let text): hadFailure = true; await record(name, text, false)
+            if name == "web.search", let data = try? JSONEncoder().encode(result.data),
+               let response = try? JSONDecoder().decode(WebSearchResponse.self, from: data) {
+                webResults = response.results
+                webProvider = response.provider; webScope = response.scope
+                hasReadableResult = true
+            }
+            if name == "web.research", case .array(let sources) = result.data.object?["sources"] {
+                researchSources = sources
+                hasReadableResult = true
+            }
+            if case .array(let images) = result.data.object?["images"] { webImages = images; imagePresentation = result.data.object?["presentation"]?.string ?? "single"; hasReadableResult = true }
+            if case .array(let documents) = result.data.object?["documents"] { webDocuments = documents; hasReadableResult = true }
+            let succeeded = result.state == .success
+            if !succeeded { hadFailure = true }
+            settings.firstActionSucceeded = settings.firstActionSucceeded || succeeded
+            evidence = result.summary
+            confirmedSummary = succeeded ? result.summary : ""
+            await record(name, result.summary, succeeded)
+        case .failure(let name, let text):
+            hadFailure = true
+            failureRecovery = permissionRecovery(for: text)
+            await record(name, text, false)
         }
     }
     public func resolveApproval(_ allowed: Bool) {
@@ -618,8 +730,11 @@ import OSLog
     }
     private func prepareIntegration(_ descriptor: ToolDescriptor) async throws {
         let kind: PermissionKind
-        if descriptor.capabilities.contains(.calendar) { kind = .calendar }
+        if descriptor.id.hasPrefix("appleNotes.") { kind = .appleNotes }
+        else if descriptor.capabilities.contains(.contacts) { kind = .contacts }
+        else if descriptor.capabilities.contains(.calendar) { kind = .calendar }
         else if descriptor.capabilities.contains(.reminders) { kind = .reminders }
+        else if descriptor.capabilities.contains(.accessibility) { kind = .accessibility }
         else { return }
         permissions.refresh()
         guard permissions.state(kind) != .allowed else { return }
@@ -629,8 +744,9 @@ import OSLog
             await withCheckedContinuation { continuation in
                 integrationContinuation = continuation
                 integrationRequest = request
+                awaitingAccessibilityGrant = false
                 state = .awaitingApproval; status = "Connect \(kind.title)"
-                settingsSection = "Integrations"; openSettings?()
+                settingsSection = kind == .accessibility ? "Permissions" : "Integrations"; openSettings?()
                 integrationExpiry = Task { [weak self] in
                     try? await Task.sleep(for: .seconds(300))
                     if !Task.isCancelled { self?.resolveIntegration(request.id, allowed: false) }
@@ -646,6 +762,22 @@ import OSLog
         guard let request = integrationRequest, request.id == id else { return }
         let outcome = await permissions.request(request.kind)
         guard integrationRequest?.id == id else { return }
+        if (request.kind == .accessibility && outcome != .allowed) || (request.kind == .appleNotes && outcome == .settingsRequired) {
+            awaitingAccessibilityGrant = true
+            accessibilityPollTask?.cancel()
+            accessibilityPollTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled, let self, self.integrationRequest?.id == id else { return }
+                    self.permissions.refresh()
+                    if self.permissions.state(request.kind) == .allowed {
+                        self.finishIntegration(id, result: .success(()))
+                        return
+                    }
+                }
+            }
+            return
+        }
         let result: Result<Void, IntegrationAccessError> = switch outcome {
         case .allowed: .success(())
         case .notGranted: .failure(.notGranted(request.kind.title))
@@ -655,30 +787,51 @@ import OSLog
         }
         finishIntegration(id, result: result)
     }
+    public func checkAccessibilityGrant(_ id: UUID) {
+        guard let request = integrationRequest, request.id == id, [.accessibility, .appleNotes].contains(request.kind) else { return }
+        permissions.refresh()
+        if permissions.state(request.kind) == .allowed {
+            finishIntegration(id, result: .success(()))
+        } else {
+            permissions.openSettings(request.kind)
+        }
+    }
     public func resolveIntegration(_ id: UUID, allowed: Bool) {
         finishIntegration(id, result: allowed ? .success(()) : .failure(.cancelled))
     }
     private func finishIntegration(_ id: UUID, result: Result<Void, IntegrationAccessError>) {
         guard integrationRequest?.id == id, let continuation = integrationContinuation else { return }
-        integrationContinuation = nil; integrationRequest = nil
+        integrationContinuation = nil; integrationRequest = nil; awaitingAccessibilityGrant = false
         integrationExpiry?.cancel(); integrationExpiry = nil
+        accessibilityPollTask?.cancel(); accessibilityPollTask = nil
         continuation.resume(returning: result)
     }
     public func cancel(clearPendingIntelligence: Bool = true) {
+        endVoiceTiming("cancelled")
+        feedbackPointerInside = false; feedbackKeyboardFocus = false
         voicePreparation.cancel()
         awaitingVoicePreparation?.cancel(); awaitingVoicePreparation = nil
         if clearPendingIntelligence { cancelIntelligenceSetup() }
         if let request = integrationRequest { resolveIntegration(request.id, allowed: false) }
         shortcut.resetGesture()
-        sessionID = UUID(); recordingLimit?.cancel(); wantsListening = false; activeMicrophone = nil; recovery = nil;
+        sessionID = UUID(); recordingLimit?.cancel(); wantsListening = false; activeMicrophone = nil; recovery = nil; failureRecovery = nil
         if voiceCheck == .checking { voiceCheck = .idle }
         task?.cancel(); task = nil; speech.cancel(); cancelAutoDismiss()
         if let approval { Task { await gate.resolve(approval.id, allowed: false) } }; approval = nil
         archiveActiveConversation()
         transcript = ""; reply = ""; confirmedSummary = ""; state = .idle; status = "Cancelled"; dismiss?()
-        fileMatches = []
+        fileMatches = []; webResults = []; webImages = []; webDocuments = []; researchSources = []; browserPage = nil
+    }
+    private func permissionRecovery(for message: String) -> RecoveryAction? {
+        let lower = message.lowercased()
+        if lower.contains("accessibility") { return .permission(.accessibility) }
+        if lower.contains("automation") || lower.contains("system events") || lower.contains("spotify") { return .permission(.automation) }
+        if lower.contains("calendar") { return .permission(.calendar) }
+        if lower.contains("reminder") { return .permission(.reminders) }
+        return nil
     }
     private func fail(_ error: Error) {
+        Logger(subsystem: "org.sotto.mac", category: "agent").error("Turn failed with error type: \(String(describing: type(of: error)), privacy: .public)")
         if error is DecodingError {
             fail(IntelligenceResponseError.unreadableResponse.localizedDescription, recovery: .providerSettings)
             return
@@ -690,12 +843,16 @@ import OSLog
         case SpeechError.message: action = settings.speechBackend == .openAIRealtime ? .voiceSettings : nil
         case SpeechError.microphoneUnavailable, SpeechError.onDeviceUnavailable, SpeechError.recognitionUnavailable: action = .voiceSettings
         case is IntelligenceResponseError: action = .providerSettings
-        case ToolError.denied: action = .providerSettings
+        case IntegrationAccessError.notGranted(let name), IntegrationAccessError.settingsRequired(let name):
+            action = permissionRecovery(for: name)
+        case ToolError.denied(let message):
+            action = permissionRecovery(for: message) ?? .providerSettings
         default: action = nil
         }
         fail(error.localizedDescription, recovery: action)
     }
     private func fail(_ text: String, recovery: RecoveryAction? = nil) {
+        endVoiceTiming("failed")
         voicePreparation.cancel()
         awaitingVoicePreparation?.cancel(); awaitingVoicePreparation = nil
         shortcut.resetGesture()
@@ -739,6 +896,7 @@ import OSLog
         adaptMicrophone()
     }
     private func adaptMicrophone() {
+        endVoiceTiming("inputChanged")
         guard state == .listening, wantsListening, !paused,
               let deadline = captureDeadline, ContinuousClock.now < deadline,
               microphoneRecoveries < 2 else {
@@ -803,14 +961,28 @@ import OSLog
         autoDismiss?.cancel()
         autoDismiss = nil
         autoDismissWindow = nil
+        feedbackInteractionPaused = false
+    }
+    public func setFeedbackInteraction(_ active: Bool, keyboard: Bool = false) {
+        if keyboard { feedbackKeyboardFocus = active } else { feedbackPointerInside = active }
+        if feedbackPointerInside || feedbackKeyboardFocus {
+            guard autoDismissWindow != nil else { return }
+            cancelAutoDismiss(); feedbackInteractionPaused = true
+        } else if feedbackInteractionPaused {
+            feedbackInteractionPaused = false
+            if [.completed, .responded].contains(state) { scheduleDismiss() }
+        }
     }
     private func scheduleDismiss(duration: TimeInterval = 5) {
         cancelAutoDismiss()
+        guard !assistiveReadingEnabled() else { return }
+        guard !feedbackPointerInside && !feedbackKeyboardFocus else { feedbackInteractionPaused = true; return }
         autoDismissWindow = AutoDismissWindow(startedAt: ProcessInfo.processInfo.systemUptime, duration: duration)
         autoDismiss = Task {
             try? await Task.sleep(for: .seconds(duration))
             if !Task.isCancelled {
                 autoDismissWindow = nil
+                guard !assistiveReadingEnabled() else { return }
                 archiveActiveConversation()
                 dismiss?()
                 state = .idle
@@ -868,8 +1040,20 @@ import OSLog
         let content = UNMutableNotificationContent(); content.title = "Sotto"; content.body = message
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
+    private func restoreTimers() {
+        guard timerMaintenance == nil else { return }
+        timerMaintenance = Task { [weak self] in
+            defer { self?.timerMaintenance = nil }
+            do { try await SottoTimerMaintenance.reconcile() }
+            catch is CancellationError {}
+            catch { Logger(subsystem: "org.sotto.mac", category: "timers").error("Timer maintenance could not verify saved state. Review timers in Sotto.") }
+        }
+    }
     public func shutdown() {
         speechResourceCheck?.cancel(); speechResourceCheck = nil
+        documentDiscovery?.cancel(); documentDiscovery = nil
+        timerMaintenance?.cancel(); timerMaintenance = nil
+        if let timerWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(timerWakeObserver); self.timerWakeObserver = nil }
         cancel(); cancelSpotifyCheck(); providerConnection.shutdown(); localProviderConnection.cancel(); localRuntime.shutdown(); contextExpiry?.cancel(); shortcut.stop(); microphones.stop()
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver); self.activationObserver = nil }
         if let sleptObserver { NSWorkspace.shared.notificationCenter.removeObserver(sleptObserver); self.sleptObserver = nil }
@@ -898,5 +1082,69 @@ public struct AutoDismissWindow: Equatable, Sendable {
     public func progress(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Double {
         guard duration > 0 else { return 1 }
         return min(max((uptime - startedAt) / duration, 0), 1)
+    }
+}
+
+private final class AppSottoSettingsBridge: SottoSettingsBridge, @unchecked Sendable {
+    private let resolveModel: @MainActor () -> AppModel?
+    init(_ resolveModel: @escaping @MainActor () -> AppModel?) {
+        self.resolveModel = resolveModel
+    }
+
+    func apply(setting: SottoSettingKey, action: String, value: String) async throws -> ToolResult {
+        try await MainActor.run {
+            guard let model = resolveModel() else {
+                throw ToolError.unavailable("Sotto settings are unavailable.")
+            }
+            if setting == .appearance {
+                if action == "status" {
+                    return ToolResult("Sotto appearance is \(model.settings.appearance)", data: .object(["appearance": .string(model.settings.appearance)]))
+                }
+                let normalized = value.lowercased()
+                guard ["system", "light", "dark"].contains(normalized) else {
+                    throw ToolError.invalid("Choose system, light, or dark for Sotto appearance.")
+                }
+                model.settings.appearance = normalized
+                return ToolResult("Set Sotto appearance to \(normalized)", data: .object(["appearance": .string(normalized)]))
+            }
+
+            let current: Bool
+            switch setting {
+            case .notifications: current = model.settings.notifications
+            case .audio_feedback: current = model.settings.audioFeedback
+            case .press_to_toggle: current = model.settings.toggleToTalk
+            case .prepare_while_speaking: current = model.settings.prepareWhileSpeaking
+            case .on_device_speech: current = model.settings.onDeviceSpeech
+            case .history: current = model.settings.historyEnabled
+            case .automatic_intelligence: current = model.settings.automaticIntelligence
+            case .appearance: current = false
+            }
+
+            if action == "status" {
+                return ToolResult("\(setting.rawValue.replacingOccurrences(of: "_", with: " ").capitalized) is \(current ? "on" : "off")", data: .object(["enabled": .bool(current)]))
+            }
+
+            let target: Bool
+            switch action {
+            case "on": target = true
+            case "off": target = false
+            case "toggle": target = !current
+            default: throw ToolError.invalid("Use on, off, toggle, or status for \(setting.rawValue).")
+            }
+
+            switch setting {
+            case .notifications: model.setNotifications(target)
+            case .audio_feedback: model.settings.audioFeedback = target
+            case .press_to_toggle: model.settings.toggleToTalk = target
+            case .prepare_while_speaking: model.settings.prepareWhileSpeaking = target
+            case .on_device_speech: model.settings.onDeviceSpeech = target
+            case .history: model.settings.historyEnabled = target
+            case .automatic_intelligence: model.settings.automaticIntelligence = target
+            case .appearance: break
+            }
+
+            let label = setting.rawValue.replacingOccurrences(of: "_", with: " ")
+            return ToolResult("Turned \(label) \(target ? "on" : "off") in Sotto", data: .object(["enabled": .bool(target)]))
+        }
     }
 }

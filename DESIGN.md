@@ -48,3 +48,11 @@ The microphone-only test never uploads or executes its transcript automatically.
 Permissions use labeled native states and contextual actions. Do not present denied/restricted or system-managed access as granted. Do not ask for screen/Accessibility capabilities that are not implemented. Microphone selection is a preference. A missing preferred microphone remains visible while Sotto uses a working fallback. The capsule names the active input; a switch during recording clears the interrupted transcript and asks the user to repeat. Keep a working recording stable when a preferred input reconnects, and re-evaluate preference on the next activation.
 
 Requested documents, file reveals and application launches do not show a second Sotto approval. Keep schema validation and file-type checks in trusted code. macOS permission prompts remain independent.
+
+## Accessible result actions
+
+File results use native Open, visibly named Summarize (supported text formats only), and Show in Finder actions. Preserve specific VoiceOver labels and location values. Measure natural list height, cap overflow and keep the footer adjacent to the rows.
+
+Short confirmation countdowns pause while the pointer or keyboard focus is in the capsule. VoiceOver/Switch Control suppresses that short countdown; privacy/context expiry remains separate. Ordinary presentation never takes focus; menu-bar Review response may focus the panel because the user explicitly chose it. Announce stable outcomes and decisions, not every partial word or audio level.
+
+Reduce Motion and Reduce Transparency omit the animated listening glow entirely and use a native actual-input level meter. Reduce Motion omits the animated dismissal ring. Do not change OS accessibility settings automatically to demonstrate these modes. Native AX-tree and inert visual review are evidence of controls/layout, not certification of spoken VoiceOver or physical accessibility use.

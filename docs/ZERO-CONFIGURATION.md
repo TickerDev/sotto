@@ -22,6 +22,14 @@ Validation: 142 offline tests passed, nine opt-in tests skipped (151 discovered)
 
 ## Calendar agenda
 
+### Calendar creation and requested document reading
+
+Personal timed event creation now uses the same native Calendar access flow. “Schedule Review tomorrow at 5 PM for 30 minutes” runs through the existing agent runtime without model inference, preserves the event title and uses the local calendar. The grammar requires an explicit AM/PM time and duration; ambiguous/nonexistent daylight-saving times do not silently shift. Other phrases use reasoning and should ask for genuinely missing time/duration information. The tool requires timezone-bearing ISO8601 start/end and a future event of up to seven days, validates the default calendar is writable, saves once and reads the actual event back before claiming success. No attendee, invitation, recurrence, edit or delete capability is exposed. Successful and uncertain save attempts have 15-minute in-memory duplicate protection; it does not survive app restart and is not a general cross-device idempotency guarantee.
+
+`read_document` extracts text from explicitly requested PDF/TXT/Markdown documents. Runtime scope requires an actual current-request file-search result or literal user-provided path. There is no background indexing/content read. Reads are bounded to 20 MB, 50 PDF pages and 16,000 characters; textless PDF pages use local OCR, capped at five pages and a 2,000-pixel longest edge. Skipped/failed OCR pages mark the result partial; blank/illegible scans and locked/unsupported files fail honestly. Extraction stays local, but extracted text is sent to the selected reasoning provider under existing processing consent. Apple on-device prompt translation uses at most 2,500 document characters and marks that excerpt partial. Search results alone still do not read or upload file contents. OCR fallback is local to the requested PDF read and may misread text or omit images on pages with embedded text. DOCX/Pages understanding and full-document chunked summaries remain unavailable. See [DOCUMENTS.md](DOCUMENTS.md).
+
+Earlier read-only Calendar descriptions below are historical; this subsection supersedes them. Native OS access remains mandatory and cannot be inferred from the spoken request. Clear personal-event creation does not require another Sotto approval.
+
 ### Permission-request correction
 
 The user reported Allow access immediately claiming cancellation. The macOS TCC log identified the actual cause: Hardened Runtime blocked Calendar prompting because `com.apple.security.personal-information.calendars` was missing. Added that entitlement to the application and reviewed release policy; the app retains Hardened Runtime and still requires user-granted OS consent. Verified the entitlement in the built signed bundle, not just the source plist.

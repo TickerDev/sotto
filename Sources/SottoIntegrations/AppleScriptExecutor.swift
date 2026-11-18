@@ -4,8 +4,24 @@ import SottoTools
 
 /// Internal transport for reviewed, fixed AppleScript only. Never exposed as an agent tool.
 struct AppleScriptExecutor: Sendable {
-    func execute(_ source: String, timeout: TimeInterval = 30, didStart: (@Sendable () -> Void)? = nil) async throws -> String {
-        let operation = ScriptOperation()
+    func shortcuts(_ arguments: [String]) async throws -> String {
+        guard arguments == ["list"] || (arguments.count == 2 && arguments[0] == "run" && !arguments[1].isEmpty && !arguments[1].hasPrefix("-") && arguments[1].count <= 256) else { throw ToolError.invalid("Unsupported Shortcuts command") }
+        let operation = ScriptOperation(targetName: "Shortcuts", executable: "/usr/bin/shortcuts", arguments: arguments)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { operation.start("", timeout: 25, didStart: nil, continuation: $0) }
+        } onCancel: { operation.cancel() }
+    }
+    func executeReviewed(_ source: String, input: Data, targetName: String, timeout: TimeInterval = 25) async throws -> String {
+        guard input.count <= 128_000 else { throw ToolError.invalid("Automation input exceeds its limit") }
+        let operation = ScriptOperation(targetName: targetName, input: input)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { operation.start(source, timeout: timeout, didStart: nil, continuation: $0) }
+        } onCancel: { operation.cancel() }
+    }
+    func execute(_ source: String, timeout: TimeInterval = 30, targetName: String = "Spotify", didStart: (@Sendable () -> Void)? = nil) async throws -> String {
+        let operation = ScriptOperation(targetName: targetName)
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { operation.start(source, timeout: timeout, didStart: didStart, continuation: $0) }
@@ -15,6 +31,11 @@ struct AppleScriptExecutor: Sendable {
 
 /// Every mutable field belongs to the serial queue. Callbacks only enqueue immutable data.
 private final class ScriptOperation: @unchecked Sendable {
+    private let targetName: String
+    private let input: Data?
+    private var inputHandle: FileHandle?
+    private let executable: String
+    private let arguments: [String]?
     private let queue = DispatchQueue(label: "org.sotto.mac.apple-events", qos: .userInitiated)
     private var process: Process?
     private var outputPipe: Pipe?
@@ -29,13 +50,18 @@ private final class ScriptOperation: @unchecked Sendable {
     private var cancelled = false
     private let limit = 65_536
 
+    init(targetName: String, executable: String = "/usr/bin/osascript", arguments: [String]? = nil, input: Data? = nil) {
+        self.executable = executable; self.arguments = arguments
+        self.targetName = targetName; self.input = input
+    }
+
     func start(_ source: String, timeout: TimeInterval, didStart: (@Sendable () -> Void)?, continuation: CheckedContinuation<String, Error>) {
         queue.async { [self] in
             self.continuation = continuation
             if self.cancelled { self.finish(.failure(CancellationError())); return }
             let process = Process(); let out = Pipe(); let err = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", source]
+            process.executableURL = URL(fileURLWithPath: self.executable)
+            process.arguments = self.arguments ?? ["-e", source]
             process.standardInput = FileHandle.nullDevice; process.standardOutput = out; process.standardError = err
             self.process = process; self.outputPipe = out; self.errorPipe = err
             out.fileHandleForReading.readabilityHandler = { handle in
@@ -49,12 +75,24 @@ private final class ScriptOperation: @unchecked Sendable {
                 self.queue.async { self.exitStatus = status; self.completeIfReady() }
             }
             do {
+                if let input = self.input {
+                    let path = FileManager.default.temporaryDirectory.appendingPathComponent("sotto-automation-" + UUID().uuidString).path
+                    let descriptor = Darwin.open(path, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+                    guard descriptor >= 0 else { throw ToolError.unavailable("Could not prepare private automation input") }
+                    // Unlinked before any content is written: no persistent body
+                    // file, command-line argument or inherited secret environment.
+                    guard Darwin.unlink(path) == 0 else { Darwin.close(descriptor); throw ToolError.unavailable("Could not protect automation input") }
+                    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+                    self.inputHandle = handle
+                    try handle.write(contentsOf: input); try handle.seek(toOffset: 0)
+                    process.standardInput = handle
+                }
                 try process.run()
                 try? out.fileHandleForWriting.close(); try? err.fileHandleForWriting.close()
                 didStart?()
                 self.queue.asyncAfter(deadline: .now() + max(0.01, timeout)) { [weak self] in
                     guard let self, self.exitStatus == nil, !self.finished else { return }
-                    self.abort(ToolError.unavailable("Apple Events timed out. Spotify may already have received the command; check playback before retrying."))
+                    self.abort(ToolError.unavailable("Apple Events timed out. \(self.targetName) may already have received the command; check before retrying."))
                 }
             } catch {
                 self.finish(.failure(ToolError.unavailable("Could not start the native Apple Events helper: \(error.localizedDescription)")))
@@ -98,7 +136,7 @@ private final class ScriptOperation: @unchecked Sendable {
             } else {
                 let message = String(decoding: errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                 let denied = message.contains("-1743") || message.contains("not authorized")
-                finish(.failure(denied ? ToolError.denied("Allow Sotto to control Spotify in System Settings → Privacy & Security → Automation.") : ToolError.unavailable("Spotify Automation failed: \(message.isEmpty ? "helper exited with status \(exitStatus)" : message)")))
+                finish(.failure(denied ? ToolError.denied("Allow Sotto to control \(targetName) in System Settings → Privacy & Security → Automation.") : ToolError.unavailable("\(targetName) Automation failed: \(message.isEmpty ? "helper exited with status \(exitStatus)" : message)")))
             }
         }
         cleanup()
@@ -108,6 +146,7 @@ private final class ScriptOperation: @unchecked Sendable {
         finished = true; self.continuation = nil; continuation.resume(with: result)
     }
     private func cleanup() {
+        try? inputHandle?.close(); inputHandle = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil; errorPipe?.fileHandleForReading.readabilityHandler = nil
         process?.terminationHandler = nil; process = nil; outputPipe = nil; errorPipe = nil
     }

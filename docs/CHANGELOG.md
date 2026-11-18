@@ -1,5 +1,84 @@
 # Changelog
 
+## Unreleased · Apple Notes integration
+
+- Add five separate appleNotes.* tools using public Automation, while preserving existing Sotto Notes and identifiers.
+- Preserve the original request through native per-app permission setup; review actual destinations and complete final text before changes.
+- Bind updates to current native content, refuse complex/locked/shared notes, escape text, and verify actual visible-text read-back with honest partial results.
+- Pass private note data through an unlinked owner-only stdin descriptor; execute real transport timeout/cancellation tests and compile the reviewed script against the installed public dictionary. Real account operations remain unverified.
+
+
+## Unreleased · local OCR for requested scanned PDFs
+
+- Recognize textless PDF pages locally with Apple Vision, retaining embedded text where available and preserving page order.
+- Bound OCR to five pages per read and 2,000 pixels per image edge, alongside the existing 20 MB/50-page/16,000-character limits. Disclose skipped/unreadable pages, recognition uncertainty and partial results.
+- Cancel in-flight recognition and reject canceled output; preserve the existing user-path/search scope and tool authorization. Images/recognized bodies are not saved to activity history.
+- Add generated image-only PDF recognition and limit/error/cancellation regressions. Manual acceptance remains paused.
+
+## Unreleased · polite folder questions
+
+- Handle “Could you open documents, please?” directly, including known-folder articles and polite wording inside self-corrections.
+- Share anchored folder parsing; preserve clarification for unspecified documents, negations, conditions and unsupported additional work.
+- Reproduce the screenshot's exact transcription in a runtime regression and keep imperative acceptance separate from the pending polite physical retry.
+
+## Unreleased · honor corrected folder destinations
+
+- Route explicit standard-folder self-corrections to only the final destination, including “Open Downloads—actually open Documents.” Match the complete bounded request; preserve additive commands and reject ambiguous/negated/unsupported revisions from the native route.
+- Tell reasoning providers to exclude withdrawn intent from remaining work rather than executing it after the corrected action.
+- Add runtime/parser regressions and a real on-device fixture regression. Record the reported physical failure separately; physical retest remains required after relaunch.
+
+## Unreleased · bounded modern speech startup
+
+- Return a retryable error after eight seconds of modern backend initialization even if an awaited Apple API ignores cancellation. Start the deadline after microphone consent.
+- Invalidate the session immediately on timeout/cancellation and schedule cleanup without holding the caller behind framework teardown; ignore late results and protect newer recordings.
+- Add five regressions for uncooperative startup, cancellation, already-canceled calls, success and original framework errors. Exercise successful real synthetic recognition through the deadline wrapper.
+
+## Unreleased · repeatable physical voice measurements
+
+- Add session-scoped, content-free phase/outcome log records and a bounded JSON report for repeated physical voice checks. Exclude test processes, partial-window sessions and late callbacks from completed results.
+- Include the remaining startup wait in Send-to-final timings when the shortcut is released early.
+- Keep transcription checks, cancellations, failures, input recovery and verified actions distinct; document a repeatable physical protocol and add report checks to CI.
+
+## Unreleased · speech startup cancellation and overlap
+
+- Start microphone capture alongside audio-format negotiation as well as analyzer preparation, after explicit activation and native permission.
+- Reject canceled/replaced sessions after asynchronous locale, format, analyzer and capture startup; keep old result readers and finalization scoped to their own recording.
+- Stop pending first-buffer capture when its startup task is canceled. Include locale resolution in the existing startup deadline and clean up unsupported locales.
+- Add offline regressions for canceling a suspended locale lookup and replacing it with a new recording.
+
+## Unreleased · real Calendar acceptance and production build coverage
+
+- Verify actual native Calendar creation, read-back, duplicate reuse, production agenda lookup and cleanup against the current authorized account, with visible native results and no leftover test event.
+- Add an explicit Debug-only account acceptance entry point; it never prompts for access, invokes intelligence or exposes event removal to the agent.
+- Cross-compile the production Release app for Apple Silicon/Intel, verify deployment/resources and exclude Debug test flags.
+- Add release-policy and unsigned universal Release checks to CI. Official signing/notarization and hardware acceptance remain separate gates.
+
+## Unreleased · accessible results and document actions
+
+- Add a visible Summarize action to supported PDF/TXT/Markdown file results, keeping exact cached-path checks and preserving the request if intelligence setup is needed. Unsupported formats retain Open/Show in Finder only.
+- Measure actual result-list content instead of allocating empty row space. Preserve the bounded, upward-growing glass capsule.
+- Pause short-result dismissal while hovered or keyboard-focused; suppress it for VoiceOver/Switch Control, including when assistive reading starts during the countdown. Existing privacy/context expiry remains unchanged.
+- Announce stable outcomes and required decisions through native accessibility notifications without speaking every waveform/partial-text change. Add status heading semantics and file-location values.
+- Honor Reduce Motion/Reduce Transparency by replacing animated listening glow with a simple actual-input level meter, and hide the countdown ring under Reduce Motion.
+- Add explicit menu-bar Review response for keyboard access without changing ordinary nonactivating voice behavior. Add an inert Debug file-result fixture for visual/accessibility review.
+
+## Unreleased · Calendar creation and document reading
+
+- Add verified personal Calendar events in the default writable calendar, requiring explicit start/end and existing native Calendar access. Clear requests run directly; invitations, recurrence, edits and deletion stay unavailable.
+- Add a fast native today/tomorrow event grammar with an explicit AM/PM time and duration. Preserve title case; ambiguous or nonexistent daylight-saving times fall back to reasoning/clarification.
+- Guard repeated and uncertain saves against duplicate retries for 15 minutes within the app session. Return real identifier/title/time read-back evidence.
+- Extract requested PDF/TXT/Markdown text locally with 20 MB/50-page/16,000-character bounds and explicit truncation. Scans, locked PDFs and unsupported formats report real limitations.
+- Enforce document paths from actual current-request search results or the user's literal path in trusted runtime code; model-invented paths cannot read content. Apple reasoning receives a disclosed 2,500-character excerpt to fit its context.
+- Update Calendar permission copy and capability discovery, preserving the existing native connection flow and glass UI.
+
+## Unreleased · response latency
+
+- Shorten Apple on-device planning and generate conversational text only when a reply is needed, rather than before tool parameters.
+- Supply capability descriptions for tool selection and the selected tool's typed argument schema afterward. Preserve compound-task instructions, recall, validation and trusted authorization.
+- Deterministic native requests bypass pending speculative inference. Start microphone capture alongside analyzer preparation, with the same bounded stream and explicit-activation/cancellation rules.
+- Add Send-to-first-action, Send-to-verified-completion and final-transcript-to-first-action diagnostics, plus content-free Apple selection/argument timing logs.
+- Real on-device action/conversation/recall checks and synthetic streaming recognition pass. See VALIDATION.md for measurements and limits; model-driven commands still take time.
+
 ## Unreleased · real-time voice
 
 - Prefer progressive on-device SpeechAnalyzer/SpeechTranscriber on supported macOS 26+ configurations, with explicit system language preparation and existing streaming fallback for the macOS 14 deployment floor.

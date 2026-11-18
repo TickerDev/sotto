@@ -1,0 +1,16 @@
+{
+  "identity": "org.sotto.mac",
+  "checks": [
+    {
+      "status": "observed",
+      "tool": "appleNotes.permission",
+      "detail": "Native per-target Automation preflight: notRequested. No Notes launch, consent prompt, note read or write."
+    },
+    {
+      "detail": "Real owned-account operations and just-in-time permission UI acceptance remain required.",
+      "tool": "appleNotes.*",
+      "status": "pending"
+    }
+  ],
+  "generated_at": "2026-11-18T15:48:18Z"
+}

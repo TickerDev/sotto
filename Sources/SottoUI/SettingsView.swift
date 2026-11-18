@@ -12,7 +12,7 @@ public struct SettingsView: View {
     private var section: String { model.settingsSection }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    private let sections = [("Setup", "wand.and.stars"), ("General", "switch.2"), ("Intelligence", "sparkles"), ("Voice", "waveform"), ("Integrations", "square.stack.3d.up"), ("Permissions", "hand.raised"), ("Privacy", "lock.shield"), ("Activity", "clock"), ("About", "info.circle")]
+    private let sections = [("Setup", "wand.and.stars"), ("General", "switch.2"), ("Intelligence", "sparkles"), ("Voice", "waveform"), ("Documents", "doc.text.magnifyingglass"), ("Web", "globe"), ("Workflows", "list.bullet.rectangle"), ("What Sotto Can Do", "questionmark.circle"), ("Integrations", "square.stack.3d.up"), ("Permissions", "hand.raised"), ("Privacy", "lock.shield"), ("Activity", "clock"), ("About", "info.circle")]
     public init(model: AppModel) { self.model = model }
     public var body: some View {
         NavigationSplitView {
@@ -58,6 +58,10 @@ public struct SettingsView: View {
                         case "General": general
                         case "Intelligence": providers
                         case "Voice": voice
+                        case "Documents": LocalDocumentSettingsView()
+                        case "Web": WebSearchSettingsView()
+                        case "Workflows": PersonalWorkflowsView(model: model)
+                        case "What Sotto Can Do": CapabilityBrowserView(model: model)
                         case "Integrations": integrations
                         case "Permissions": permissions
                         case "Privacy": privacy
@@ -83,7 +87,7 @@ public struct SettingsView: View {
             if reduceTransparency { Color(nsColor: .windowBackgroundColor).ignoresSafeArea() }
             else { NativeMaterial(material: .underWindowBackground, blending: .behindWindow).ignoresSafeArea() }
         }
-        .background(SettingsWindowChrome())
+        .background { SettingsWindowChrome() }
         .onAppear { model.refreshEnvironment() }
         .sheet(isPresented: $model.intelligenceSetupPresented) { IntelligenceSetupSheet(model: model) }
         .sheet(item: $model.integrationRequest) { request in IntegrationAccessSheet(model: model, request: request) }

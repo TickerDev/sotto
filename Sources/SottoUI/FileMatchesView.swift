@@ -6,6 +6,8 @@ import SottoTools
 struct FileMatchesView: View {
     let matches: [FileSearchMatch]
     let select: (FileSearchMatch, Bool) -> Void
+    var summarize: ((FileSearchMatch) -> Void)? = nil
+    @State private var listHeight: CGFloat = 1
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Best matches").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
@@ -25,14 +27,29 @@ struct FileMatchesView: View {
                                     Spacer(minLength: 0)
                                 }.padding(.vertical, 8).padding(.horizontal, 4).contentShape(Rectangle())
                             }.buttonStyle(.plain).help("Open \(match.path)").accessibilityLabel("Open \(match.name)")
+                                .accessibilityValue(URL(fileURLWithPath: match.path).deletingLastPathComponent().path)
+                            if DocumentTextFormats.supports(match.path), let summarize {
+                                Button("Summarize") { summarize(match) }
+                                    .buttonStyle(.borderless).controlSize(.small).font(.system(size: 11)).help("Summarize \(match.name)")
+                                    .accessibilityLabel("Summarize \(match.name)")
+                                    .accessibilityHint("Uses your selected intelligence to summarize this document")
+                            }
                             Button { select(match, true) } label: { Image(systemName: "folder").frame(width: 24, height: 28) }
                                 .buttonStyle(.borderless).help("Show in Finder").accessibilityLabel("Show \(match.name) in Finder")
                         }
                     }
                 }
-            }.frame(height: min(CGFloat(matches.count) * 88, 264)).scrollBounceBehavior(.basedOnSize)
-            Text("Click a file to open it, or use the folder button to show it in Finder.")
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in Color.clear.preference(key: FileResultsHeight.self, value: proxy.size.height) })
+            }.frame(height: min(max(1, listHeight), 264)).scrollBounceBehavior(.basedOnSize)
+                .onPreferenceChange(FileResultsHeight.self) { if $0.isFinite && $0 > 0 { listHeight = $0 } }
+            Text(summarize == nil ? "Click a file to open it, or use the folder button to show it in Finder." : "Open a file, summarize supported documents, or show it in Finder.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
+}
+
+private struct FileResultsHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 1
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

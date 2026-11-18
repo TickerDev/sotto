@@ -9,10 +9,11 @@ let package = Package(name: "SottoKit", platforms: [.macOS(.v14)], products: ["S
 .target(name: "SottoProviders", dependencies: ["SottoTools"]),
 .target(name: "SottoPersistence", dependencies: [.product(name: "GRDB", package: "GRDB.swift")]),
 .target(name: "SottoAgent", dependencies: ["SottoTools", "SottoSecurity", "SottoProviders"]),
-.target(name: "SottoIntegrations", dependencies: ["SottoTools"]),
+.target(name: "SottoDocumentBridge", linkerSettings: [.linkedLibrary("z")]),
+.target(name: "SottoIntegrations", dependencies: ["SottoTools", "SottoDocumentBridge"]),
 .target(name: "SottoAudioBridge"),
 .target(name: "SottoAudio", dependencies: ["SottoAudioBridge"]),
 .target(name: "SottoUI", dependencies: ["SottoAgent", "SottoAudio", "SottoTools", "SottoSecurity", "SottoProviders", "SottoIntegrations", "SottoPersistence", .product(name: "VoiceGlowKit", package: "Libraries.dev")]),
 .target(name: "SottoAudioBridgeFixtures", dependencies: ["SottoAudioBridge"], path: "Tests/SottoAudioBridgeFixtures"),
-.testTarget(name: "SottoTests", dependencies: ["SottoAudioBridgeFixtures", "SottoAgent", "SottoProviders", "SottoSecurity", "SottoTools", "SottoPersistence", "SottoIntegrations", "SottoAudio", "SottoUI"])
+.testTarget(name: "SottoTests", dependencies: ["SottoAudioBridgeFixtures", "SottoAgent", "SottoProviders", "SottoSecurity", "SottoTools", "SottoPersistence", "SottoIntegrations", "SottoAudio", "SottoUI"], resources: [.copy("Fixtures/Documents")])
 ])

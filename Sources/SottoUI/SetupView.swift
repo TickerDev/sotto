@@ -133,10 +133,11 @@ struct PermissionSettingsView: View {
                 PermissionRow(center: model.permissions, kind: .reminders)
                 PermissionRow(center: model.permissions, kind: .calendar)
                 PermissionRow(center: model.permissions, kind: .automation)
-                Text("Spotify consent is managed per target app. Sotto does not infer that permission has been granted. File access follows macOS authorization; Full Disk Access is not requested.").font(.caption).foregroundStyle(.secondary)
+                PermissionRow(center: model.permissions, kind: .accessibility)
+                Text("Automation consent is managed per target app (such as System Events or Spotify). Accessibility is requested only when changing System Settings controls via UI automation. File access follows macOS authorization; Full Disk Access is not requested.").font(.caption).foregroundStyle(.secondary)
             }
             SettingsGroup("Not requested") {
-                Text("Accessibility automation and screen capture are not implemented or enabled. Sotto does not ask for those permissions.").foregroundStyle(.secondary)
+                Text("Screen capture is not implemented or enabled. Sotto does not ask for that permission.").foregroundStyle(.secondary)
             }
         }.onAppear { model.refreshEnvironment() }
     }

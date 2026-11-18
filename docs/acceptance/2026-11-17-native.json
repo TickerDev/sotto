@@ -1,0 +1,91 @@
+{
+  "checks": [
+    {
+      "detail": "Actual native read executed; private values omitted from this report.",
+      "status": "observed",
+      "tool": "apps.list"
+    },
+    {
+      "detail": "Actual native read executed; private values omitted from this report.",
+      "status": "observed",
+      "tool": "screen.context"
+    },
+    {
+      "detail": "Actual native read executed; private values omitted from this report.",
+      "status": "observed",
+      "tool": "system.info"
+    },
+    {
+      "detail": "Actual native read executed; private values omitted from this report.",
+      "status": "observed",
+      "tool": "audio.output"
+    },
+    {
+      "detail": "Owned test event created, listed, duplicate request reused and cleanup verified.",
+      "status": "observed",
+      "tool": "calendar.create/list"
+    },
+    {
+      "detail": "Owned fixture updated through the production tool, read back and removed.",
+      "status": "observed",
+      "tool": "calendar.update"
+    },
+    {
+      "detail": "Owned fixture created, found by the production title filter, completed, read back and removed.",
+      "status": "observed",
+      "tool": "reminders.create/list/complete"
+    },
+    {
+      "detail": "Owned external fixture did not become foreground. No personal selection read.",
+      "status": "blocked",
+      "tool": "selection.read/windows.*"
+    },
+    {
+      "detail": "Screen Recording access unavailable. No screenshot or prompt.",
+      "status": "pending",
+      "tool": "screen.capture/readText"
+    },
+    {
+      "detail": "Actual native scheduling result; no delivery inferred.",
+      "status": "observed",
+      "tool": "timers.start"
+    },
+    {
+      "detail": "Notification Center presence checked for the owned timer only. Banner/sound and sleep/Focus behavior still need observation.",
+      "status": "observed",
+      "tool": "timers.delivery"
+    },
+    {
+      "detail": "Owned pending/delivered alert removal and saved-record cleanup checked.",
+      "status": "observed",
+      "tool": "timers.cancel"
+    },
+    {
+      "detail": "Contacts access unavailable; just-in-time permission required. No contact read or write.",
+      "status": "pending",
+      "tool": "contacts.*"
+    },
+    {
+      "detail": "Requires a suitable running app/device or explicitly selected safe fixture. No personal playback, output route, shortcut or tab was changed.",
+      "status": "pending",
+      "tool": "media.playPause"
+    },
+    {
+      "detail": "Requires a suitable running app/device or explicitly selected safe fixture. No personal playback, output route, shortcut or tab was changed.",
+      "status": "pending",
+      "tool": "audio.output.select"
+    },
+    {
+      "detail": "Requires a suitable running app/device or explicitly selected safe fixture. No personal playback, output route, shortcut or tab was changed.",
+      "status": "pending",
+      "tool": "shortcuts.run"
+    },
+    {
+      "detail": "Requires a suitable running app/device or explicitly selected safe fixture. No personal playback, output route, shortcut or tab was changed.",
+      "status": "pending",
+      "tool": "browser.currentTab/readPage/openLink"
+    }
+  ],
+  "generated_at": "2026-11-18T02:56:29Z",
+  "identity": "org.sotto.mac"
+}

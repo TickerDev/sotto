@@ -11,10 +11,10 @@ public struct Approval: Sendable, Identifiable, Equatable {
 public actor AuthorizationGate {
     private var pending: (Approval, CheckedContinuation<Bool, Never>)?
     public init() {}
-    public func authorize(_ descriptor: ToolDescriptor, arguments: JSONValue, present: @escaping @Sendable (Approval) async -> Void) async throws {
+    public func authorize(_ descriptor: ToolDescriptor, arguments: JSONValue, forceApproval: Bool = false, present: @escaping @Sendable (Approval) async -> Void) async throws {
         try Task.checkCancellation()
         try descriptor.validate(arguments)
-        guard descriptor.risk == .consequential else { return }
+        guard descriptor.risk == .consequential || forceApproval else { return }
         guard pending == nil else { throw ToolError.denied("Another action is awaiting approval") }
         let request = Approval(tool: descriptor.id, arguments: arguments)
         let allowed = await withTaskCancellationHandler {
@@ -34,9 +34,9 @@ public actor AuthorizationGate {
 public enum KeychainStore {
     static let service = "org.sotto.mac.provider"
     static let account = "openai"
-    public static func read() throws -> String? {
+    public static func read(credentialAccount: String = "openai") throws -> String? {
         var result: CFTypeRef?
-        let status = SecItemCopyMatching([kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne] as CFDictionary, &result)
+        let status = SecItemCopyMatching([kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: credentialAccount, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne] as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else {
             if [errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed].contains(status) { throw ToolError.denied("Keychain access was cancelled or not allowed. Use Verify connection to authorize the saved key.") }
@@ -44,8 +44,8 @@ public enum KeychainStore {
         }
         return String(data: data, encoding: .utf8)
     }
-    public static func save(_ key: String) throws {
-        let query = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account] as [CFString: Any]
+    public static func save(_ key: String, credentialAccount: String = "openai") throws {
+        let query = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: credentialAccount] as [CFString: Any]
         if key.isEmpty {
             let status = SecItemDelete(query as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else { throw ToolError.unavailable("Keychain could not remove the saved key (\(status))") }

@@ -13,7 +13,8 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Sotto listens only when you activate voice input.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Sotto transcribes your spoken commands using Apple Speech.</string>
-<key>NSAppleEventsUsageDescription</key><string>Sotto controls Spotify playback when you ask.</string>
+<key>NSAppleEventsUsageDescription</key><string>Sotto controls macOS settings and supported apps like Spotify and Apple Notes when you ask.</string>
+<key>NSContactsUsageDescription</key><string>Sotto finds people you ask about and saves contact changes only after you review them.</string>
 <key>NSRemindersFullAccessUsageDescription</key><string>Sotto creates and lists reminders when you ask.</string>
-<key>NSCalendarsFullAccessUsageDescription</key><string>Sotto reads your calendar when you ask what’s coming up. It does not change your events.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Sotto reads your calendar and adds events only when you ask. It verifies created events and never sends invitations.</string>
 </dict></plist>

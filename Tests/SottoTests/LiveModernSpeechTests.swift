@@ -44,7 +44,9 @@ final class LiveModernSpeechTests: XCTestCase, @unchecked Sendable {
         let capture = SyntheticAppleCapture(), worker = ModernSpeechWorker(microphone: capture), token = SpeechSessionToken(), probe = ModernPartialProbe()
         let partial = expectation(description: "Provisional words arrive while input is still open")
         let start = ProcessInfo.processInfo.systemUptime
-        try await worker.start(locale: "en-US", deviceID: 0, token: token) { update in if probe.accept(update) { partial.fulfill() } }
+        try await SpeechStartupDeadline.run(timeout: .seconds(8), operation: {
+            try await worker.start(locale: "en-US", deviceID: 0, token: token) { update in if probe.accept(update) { partial.fulfill() } }
+        }, onAbort: { token.cancel(); Task { await worker.cancel(token) } })
         let feeder = Task {
             for chunk in chunks { await capture.push(chunk); try await Task.sleep(for: .seconds(Double(chunk.count) / 48_000)) }
             for _ in 0..<15 { await capture.push(Data(repeating: 0, count: 4_800)); try await Task.sleep(for: .milliseconds(100)) }
