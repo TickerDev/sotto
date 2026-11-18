@@ -17,11 +17,14 @@ import SottoTools
         func record(_ tool: String, _ status: String, _ detail: String) {
             rows.append(.object(["tool": .string(tool), "status": .string(status), "detail": .string(detail)]))
         }
-        if CommandLine.arguments.contains("--notes-permission-only") {
-            let status = AppleNotesAuthorization.status()
+        if CommandLine.arguments.contains("--notes-permission-only") || CommandLine.arguments.contains("--mail-permission-only") {
+            let mail = CommandLine.arguments.contains("--mail-permission-only")
+            let prefix = mail ? "mail" : "appleNotes"
+            let app = mail ? "Mail" : "Notes"
+            let status = mail ? AppleMailAuthorization.status() : AppleNotesAuthorization.status()
             let state: String = switch status { case .allowed: "allowed"; case .notRequested: "notRequested"; case .denied: "denied"; case .unavailable: "unavailable" }
-            record("appleNotes.permission", "observed", "Native per-target Automation preflight: " + state + ". No Notes launch, consent prompt, note read or write.")
-            record("appleNotes.*", "pending", "Real owned-account operations and just-in-time permission UI acceptance remain required.")
+            record(prefix + ".permission", "observed", "Native per-target Automation preflight: " + state + ". No " + app + " launch, consent prompt, account or content read/write.")
+            record(prefix + ".*", "pending", "Real owned-account operations and just-in-time permission UI acceptance remain required.")
             let bytes = try JSONEncoder().encode(JSONValue.object(["generated_at": .string(ISO8601DateFormatter().string(from: Date())), "identity": .string(Bundle.main.bundleIdentifier ?? ""), "checks": .array(rows)]))
             try bytes.write(to: destination, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)

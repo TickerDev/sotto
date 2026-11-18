@@ -9,7 +9,7 @@ Sotto is an open-source macOS 14+ Swift 6 application. It does not require a pro
 | Contacts | Implemented; controlled write tests/native card snapshot exercised | Native search/get/create/update, just-in-time OS permission, exact revisions and field review. Actual account save acceptance pending because Contacts permission is absent here. |
 | Sotto Notes | Verified with isolated real local files | Local list/search/read/create/update, source labeling, reviewed append/replace, exact revision checks. Separate from Apple Notes. |
 | Apple Notes | Implemented; real account operations unverified | Five appleNotes.* tools, native per-app Automation connection, reviewed changes and independent visible-text read-back. Fixed script compiles against installed public dictionary; private transport/timeout/cancellation execute for real. |
-| Apple Mail | Planned | Installed Mail.sdef inspected. Accounts, inbox discovery and message operations require a supported Apple Events adapter, scoped references and reviewed/durable sending. No mail tools are registered yet. |
+| Apple Mail | Implemented for read-only inbox operations; real account acceptance pending | mail.accounts/search/read use public Automation, real account/native/RFC identifiers, expiring result references and bounded text. No draft/send/archive/mark-read tools are registered. |
 | Gmail / Microsoft Outlook | Planned | Official OAuth/API adapters; no copied browser/account credentials or embedded shared secret. Maintainer application registrations and account verification are not configured. |
 | Apple Messages / Slack / Discord | Planned | Application/bot APIs and explicit access only; no history scraping, self-bots or extracted user tokens. No messaging tools are registered. |
 | General computer use | Planned | Structured AX references, policies and verification still needed beyond the existing window/browser adapters. No arbitrary keyboard tool is exposed. |
@@ -41,7 +41,19 @@ Updates retain the existing title and bind the actual ID plus a revision of nati
 
 Automated checks use controlled note adapters, an actual osascript private-input/timeout/cancellation path, and compilation against the installed Notes dictionary. They do not prove real Notes account behavior. Apple Notes remains Implemented pending an owned-account fixture, permission grant/revocation/resume, locked/shared/attachment fixtures and spoken acceptance. Manual user testing remains paused; no additional manual-test prompts are required to continue development.
 
-## Email and communication adapter contract — not implemented yet
+## Apple Mail — first read-only delivery
+
+mail.accounts, mail.search and mail.read use accounts already configured in Apple's Mail application. This is not direct Gmail/Outlook OAuth. Per-application Automation consent uses the native connection sheet and retains the pending request. No account passwords, private database, raw message source or extracted tokens are read. A no-enabled-account result explains that an account must be configured in Apple Mail.
+
+Search matches literal sender/subject phrases with optional actual account ID, unread-only filter and explicit received-date bounds. The start is inclusive and end exclusive; dates include seconds and a time zone. Search inspects the first 200 accessible inbox messages and returns up to 20 matches, sorted within those results. Ordering of the underlying inbox is not guaranteed, so Sotto must not claim to find the globally latest message or search the complete mailbox. Other folders, body content, deleted/junk/local messages without an account and attachments are outside this scope. Skipped messages and result limits are disclosed, with partial status when individual reads failed.
+
+Search returns actual account/native/RFC message IDs plus an opaque session-local message_ref. Reads accept only that previously returned reference, not a model-supplied native ID. References expire after ten minutes, are capped at 200, and do not survive relaunch. Before and after reading, the native adapter checks account, native ID, RFC ID, subject, sender, received time and mailbox. Moved/changed messages require a new search. Multiple matches must be disambiguated rather than guessed.
+
+Message size and full returned body are guarded at 2 MB; text is an excerpt of at most 16000 UTF-8 bytes, clipped on a valid Unicode boundary. Native Mail may need its configured account service to obtain body text. Sotto does not render HTML, open links or explicitly retrieve embedded resources. It issues no mark-read command; if Mail's read status changes during extraction, the tool reports partial completion rather than hiding the change. No read behavior against a live personal account has been certified here.
+
+Controlled adapters cover account projection, absent accounts, reference expiry/eviction, changed account/native/RFC identity, skipped/ambiguous results and read-status/partial text. Actual Foundation AppleScript helpers pass time-zone conversion and Unicode clipping, and the full fixed script compiles against the installed public Mail dictionary without executing account operations. These are not real inbox validation. Existing manual user testing remains paused.
+
+## Email writes and other communication — not implemented yet
 
 Adapters must return actual provider account/message/thread/draft IDs and bounded normalized text. Account selection, sender, reply targets and original messages must survive the draft-to-send flow without model-generated substitutions. Mail sending must freeze recipients, subject and full body for review; a durable send-attempt record must precede dispatch. Queued/uncertain results cannot be retried blindly or presented as delivered.
 
@@ -53,4 +65,4 @@ References: [Google desktop OAuth](https://developers.google.com/identity/protoc
 
 ## Remaining major expansion
 
-Mail and messaging tools, structured UI actions, browser navigation/forms, file/text/network/notification utilities, dynamic integration SDK, HelloSotto package, MCP transports, curated registry/install/update/revoke UI and general task recovery remain unfinished. Existing workflow recovery is implemented; it does not make all new operations resumable.
+Remaining Mail tools (thread/summarize/draft/send/reply/archive/markRead), messaging, structured UI actions, browser navigation/forms, file/text/network/notification utilities, dynamic integration SDK, HelloSotto package, MCP transports, curated registry/install/update/revoke UI and general task recovery remain unfinished. Existing workflow recovery is implemented; it does not make all new operations resumable.

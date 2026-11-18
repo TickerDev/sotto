@@ -10,6 +10,7 @@ struct CapabilityBrowserView: View {
     private let groups: [(String, [String], String)] = [
         ("Files and Documents", ["files.", "aliases."], "“Find my résumé.” · “Find the PDF I downloaded yesterday.”"),
         ("Apps and Windows", ["apps.", "windows."], "“Open Safari.” · “Arrange my windows.”"),
+        ("Email", ["mail."], "“What emails did I miss today?” · “Find the inbox email about my internship.”"),
         ("Apple Notes", ["appleNotes."], "“Find my Apple research note.” · “Create an Apple Note with this idea.”"),
         ("Sotto Notes", ["notes."], "“Create a Sotto note with this idea.” · “Find my Sotto research note.”"),
         ("Contacts", ["contacts."], "“What’s Alex’s phone number?” · “Add this person to my contacts.”"),
@@ -45,8 +46,8 @@ struct CapabilityBrowserView: View {
                                     Button("Web search options…") { model.settingsSection = "Web" }.font(.caption)
                                 }
                                 if let kind = missingPermission(tool) {
-                                    Button(kind == .appleNotes ? "Connect Apple Notes…" : "Open \(kind.title) permissions…") {
-                                        if kind == .appleNotes { Task { await model.permissions.request(kind) } }
+                                    Button([.appleNotes, .appleMail].contains(kind) ? "Connect \(kind.title)…" : "Open \(kind.title) permissions…") {
+                                        if [.appleNotes, .appleMail].contains(kind) { Task { await model.permissions.request(kind) } }
                                         else { model.permissions.openSettings(kind) }
                                     }.font(.caption)
                                 }
@@ -61,6 +62,7 @@ struct CapabilityBrowserView: View {
         }
     }
     private func missingPermission(_ tool: ToolDescriptor) -> PermissionKind? {
+        if tool.id.hasPrefix("mail."), model.permissions.state(.appleMail) != .allowed { return .appleMail }
         if tool.id.hasPrefix("appleNotes."), model.permissions.state(.appleNotes) != .allowed { return .appleNotes }
         for (capability, kind) in [(Capability.contacts, PermissionKind.contacts), (Capability.calendar, PermissionKind.calendar), (.reminders, .reminders), (.accessibility, .accessibility)] {
             if tool.capabilities.contains(capability), model.permissions.state(kind) != .allowed { return kind }
@@ -68,6 +70,7 @@ struct CapabilityBrowserView: View {
         return nil
     }
     private func availability(_ tool: ToolDescriptor) -> String {
+        if tool.id.hasPrefix("mail."), NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail") == nil { return "Apple Mail required" }
         if tool.id.hasPrefix("appleNotes."), NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Notes") == nil { return "Apple Notes required" }
         if tool.id.hasPrefix("browser."), !["com.apple.Safari", "com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser"].contains(where: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }) { return "Supported browser required" }
         if missingPermission(tool) != nil { return "Permission needed" }

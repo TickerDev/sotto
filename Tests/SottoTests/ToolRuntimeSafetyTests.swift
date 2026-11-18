@@ -100,7 +100,7 @@ final class ToolRuntimeSafetyTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(count, 0); XCTAssertEqual(approvals, 3)
     }
     func testPersonalIntegrationReadsCannotAuthorizeCrossSourceOrNetworkDisclosure() async throws {
-        for (origin, target, expected) in [("contacts__search", "contacts.get", 1), ("notes__search", "notes.read", 1), ("notes__read", "contacts.get", 0), ("appleNotes__search", "appleNotes.read", 1), ("appleNotes__read", "web.search", 0), ("appleNotes__read", "notes.read", 0), ("contacts__get", "web.search", 0)] {
+        for (origin, target, expected) in [("contacts__search", "contacts.get", 1), ("notes__search", "notes.read", 1), ("notes__read", "contacts.get", 0), ("appleNotes__search", "appleNotes.read", 1), ("appleNotes__read", "web.search", 0), ("appleNotes__read", "notes.read", 0), ("contacts__get", "web.search", 0), ("mail__search", "mail.read", 1), ("mail__read", "web.search", 0), ("mail__read", "contacts.get", 0)] {
             let counter = RuntimeCounter(); let gate = AuthorizationGate(); let events = SafetyEvents()
             let runtime = AgentRuntime(registry: ToolRegistry([CountedRuntimeTool(id: target, counter: counter, risk: .read)]), gate: gate)
             let context: [JSONValue] = [.object(["type": .string("function_call"), "name": .string(origin)])]

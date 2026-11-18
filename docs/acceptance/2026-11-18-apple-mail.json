@@ -1,0 +1,16 @@
+{
+  "checks": [
+    {
+      "status": "observed",
+      "tool": "mail.permission",
+      "detail": "Native per-target Automation preflight: notRequested. No Mail launch, consent prompt, account or content read/write."
+    },
+    {
+      "status": "pending",
+      "tool": "mail.*",
+      "detail": "Real owned-account operations and just-in-time permission UI acceptance remain required."
+    }
+  ],
+  "generated_at": "2026-11-18T16:22:46Z",
+  "identity": "org.sotto.mac"
+}

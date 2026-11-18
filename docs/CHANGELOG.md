@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased · read-only Apple Mail
+
+- Add mail.accounts/search/read through the public Automation interface and accounts already configured in Apple Mail.
+- Preserve the original request through native permission setup; bind reads to expiring references carrying actual account/native/RFC message IDs and metadata.
+- Disclose inbox-only search limits, skipped results, text excerpts and unexpected read-status changes. Sending, drafting, archive and mark-read remain unavailable.
+- Exercise actual date/Unicode AppleScript helpers and installed-dictionary compilation; cover identity/refusal/partial cases with controlled adapters. Real inbox acceptance remains pending.
+
+
 ## Unreleased · Apple Notes integration
 
 - Add five separate appleNotes.* tools using public Automation, while preserving existing Sotto Notes and identifiers.

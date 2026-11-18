@@ -730,7 +730,8 @@ import OSLog
     }
     private func prepareIntegration(_ descriptor: ToolDescriptor) async throws {
         let kind: PermissionKind
-        if descriptor.id.hasPrefix("appleNotes.") { kind = .appleNotes }
+        if descriptor.capabilities.contains(.mail) { kind = .appleMail }
+        else if descriptor.id.hasPrefix("appleNotes.") { kind = .appleNotes }
         else if descriptor.capabilities.contains(.contacts) { kind = .contacts }
         else if descriptor.capabilities.contains(.calendar) { kind = .calendar }
         else if descriptor.capabilities.contains(.reminders) { kind = .reminders }
@@ -762,7 +763,7 @@ import OSLog
         guard let request = integrationRequest, request.id == id else { return }
         let outcome = await permissions.request(request.kind)
         guard integrationRequest?.id == id else { return }
-        if (request.kind == .accessibility && outcome != .allowed) || (request.kind == .appleNotes && outcome == .settingsRequired) {
+        if (request.kind == .accessibility && outcome != .allowed) || ([.appleNotes, .appleMail].contains(request.kind) && outcome == .settingsRequired) {
             awaitingAccessibilityGrant = true
             accessibilityPollTask?.cancel()
             accessibilityPollTask = Task { [weak self] in
@@ -788,7 +789,7 @@ import OSLog
         finishIntegration(id, result: result)
     }
     public func checkAccessibilityGrant(_ id: UUID) {
-        guard let request = integrationRequest, request.id == id, [.accessibility, .appleNotes].contains(request.kind) else { return }
+        guard let request = integrationRequest, request.id == id, [.accessibility, .appleNotes, .appleMail].contains(request.kind) else { return }
         permissions.refresh()
         if permissions.state(request.kind) == .allowed {
             finishIntegration(id, result: .success(()))

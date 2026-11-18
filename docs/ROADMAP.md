@@ -6,11 +6,11 @@ The newest request establishes eight phases: reliability; everyday information; 
 
 Current delivery: real Sotto-identity owned Calendar create/list/update, Reminders create/title-filtered list/complete, timer Notification Center scheduling/presence/removal and native read-only checks passed. Owned fixtures were cleaned up. Screen Recording is unavailable. The external AX fixture could not become foreground, and native control attached to an older running Sotto instance; no personal selection/window was manipulated or declared verified. Browser, playback, output-switch and Shortcut effects still need safe live fixtures.
 
-Contacts search/get/create/update and just-in-time access are implemented. Account reads/saves remain unverified because Contacts permission is absent here. Sotto Notes list/search/read/create/update passed actual isolated persistence tests; this is not Apple Notes access. Apple Notes now has a separate public-Automation adapter with five tools and just-in-time access; real account operations remain unverified. Mail, messaging, contact aliases, broader UI actions/utilities, SDK/HelloSotto, MCP, marketplace and general task recovery remain unfinished.
+Contacts search/get/create/update and just-in-time access are implemented. Account reads/saves remain unverified because Contacts permission is absent here. Sotto Notes list/search/read/create/update passed actual isolated persistence tests; this is not Apple Notes access. Apple Notes now has a separate public-Automation adapter with five tools and just-in-time access; real account operations remain unverified. Read-only Apple Mail accounts/search/read now use public Automation, scoped message references and bounded inbox/text results; live account acceptance remains pending. Mail writes/threading, messaging, contact aliases, broader UI actions/utilities, SDK/HelloSotto, MCP, marketplace and general task recovery remain unfinished.
 
-Latest delivery: **361 tests, 24 skipped, zero failures**; macOS build and UI mechanical scan pass. Contacts writes use controlled adapters; local notes use real files; native observations used the actual Sotto identity. Evidence: acceptance/2026-11-17-native.json and acceptance/2026-11-17-windows.json.
+Latest delivery: **372 tests, 24 skipped, zero failures**; macOS build and UI mechanical scan pass. Contacts writes use controlled adapters; local notes use real files; native observations used the actual Sotto identity. Evidence: acceptance/2026-11-17-native.json, acceptance/2026-11-17-windows.json and the November 18 Notes/Mail no-prompt permission reports.
 
-Next: the first read-only Apple Mail adapter with real message references and native account access; keep sending unavailable until exact draft review and durable uncertain-send protection are implemented. Remaining live acceptance runs only with existing access and suitable owned fixtures.
+Next: reviewable Mail drafts and deliberate conversation/thread handling; keep sending unavailable until exact recipient/body review and durable uncertain-send protection are implemented. Remaining live acceptance runs only with existing access and suitable owned fixtures.
 
 See INTEGRATIONS.md, INTEGRATION-SDK.md and SECURITY.md. The older history below is retained as dated evidence, not certification of the entire expansion.
 
@@ -102,7 +102,7 @@ Manual acceptance is paused at the user’s request. Continue implementation ind
 
 ## Later: context and integrations
 
-Foreground application context, selected text, windows, explicit screen capture/OCR, Shortcuts and the narrowly authorized foreground browser bridge are implemented; their individual physical acceptance limits are tracked in TOOLS.md. Mail, browser extension/session automation, Notes editing, permitted Discord context and MCP remain future integrations.
+Foreground application context, selected text, windows, explicit screen capture/OCR, Shortcuts and the narrowly authorized foreground browser bridge are implemented; their individual physical acceptance limits are tracked in TOOLS.md. Mail writes and complete threading, browser extension/session automation, unrestricted Notes editing, permitted Discord context and MCP remain future integrations.
 
 ## Requested system settings — implemented
 

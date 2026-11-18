@@ -30,12 +30,15 @@ public enum JSONValue: Codable, Sendable, Equatable {
     }
 }
 public enum Risk: String, Sendable { case read, reversible, consequential }
-public enum Capability: String, Sendable { case files, applications, automation, reminders, calendar, contacts, notes, settings, accessibility, web, timers, clipboard, screen, audio, system }
+public enum Capability: String, Sendable { case files, applications, automation, reminders, calendar, contacts, mail, notes, settings, accessibility, web, timers, clipboard, screen, audio, system }
 public struct ToolDescriptor: Sendable {
     public let id: String
     public var providerName: String { id.replacingOccurrences(of: ".", with: "__") }
     public var name: String {
         switch id {
+        case "mail.accounts": return "Find your Apple Mail accounts"
+        case "mail.search": return "Find inbox messages"
+        case "mail.read": return "Read an inbox message"
         case "appleNotes.list": return "List Apple Notes"
         case "appleNotes.search": return "Find an Apple Note"
         case "appleNotes.read": return "Read an Apple Note"

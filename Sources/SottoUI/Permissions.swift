@@ -11,16 +11,17 @@ import IOKit.hidsystem
 import OSLog
 
 public enum PermissionKind: String, CaseIterable, Sendable, Identifiable {
-    case microphone, speech, keyboard, reminders, calendar, contacts, appleNotes, automation, accessibility
+    case microphone, speech, keyboard, reminders, calendar, contacts, appleNotes, appleMail, automation, accessibility
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .microphone: "Microphone"; case .speech: "Speech Recognition"; case .keyboard: "Input Monitoring"; case .reminders: "Reminders"; case .calendar: "Calendar"; case .contacts: "Contacts"; case .appleNotes: "Apple Notes"; case .automation: "Automation"; case .accessibility: "Accessibility" }
+        switch self { case .microphone: "Microphone"; case .speech: "Speech Recognition"; case .keyboard: "Input Monitoring"; case .reminders: "Reminders"; case .calendar: "Calendar"; case .contacts: "Contacts"; case .appleNotes: "Apple Notes"; case .appleMail: "Apple Mail"; case .automation: "Automation"; case .accessibility: "Accessibility" }
     }
     public var detail: String {
         switch self {
         case .microphone: "Captures audio only when you start listening."
         case .speech: "Needed for older Apple Speech recognition. Modern on-device transcription and OpenAI Realtime use microphone permission instead."
         case .keyboard: "Enables your global shortcut. Optional when using the menu bar."
+        case .appleMail: "Reads requested inbox messages through Apple Mail. Sending and mailbox changes are unavailable."
         case .appleNotes: "Reads and changes requested Apple Notes through macOS Automation. Changes require review."
         case .contacts: "Finds people you ask about. Saving contact changes requires review; account access is requested only when needed."
         case .reminders: "Requested when you first create or list reminders."
@@ -31,7 +32,7 @@ public enum PermissionKind: String, CaseIterable, Sendable, Identifiable {
     }
     public var settingsURL: URL {
         let pane: String
-        switch self { case .microphone: pane = "Privacy_Microphone"; case .speech: pane = "Privacy_SpeechRecognition"; case .keyboard: pane = "Privacy_ListenEvent"; case .reminders: pane = "Privacy_Reminders"; case .calendar: pane = "Privacy_Calendars"; case .contacts: pane = "Privacy_Contacts"; case .appleNotes, .automation: pane = "Privacy_Automation"; case .accessibility: pane = "Privacy_Accessibility" }
+        switch self { case .microphone: pane = "Privacy_Microphone"; case .speech: pane = "Privacy_SpeechRecognition"; case .keyboard: pane = "Privacy_ListenEvent"; case .reminders: pane = "Privacy_Reminders"; case .calendar: pane = "Privacy_Calendars"; case .contacts: pane = "Privacy_Contacts"; case .appleNotes, .appleMail, .automation: pane = "Privacy_Automation"; case .accessibility: pane = "Privacy_Accessibility" }
         return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!
     }
 }
@@ -89,6 +90,7 @@ struct KeyboardPermissionSnapshot: Equatable {
         states[.reminders] = switch EKEventStore.authorizationStatus(for: .reminder) { case .fullAccess: .allowed; case .denied: .denied; case .restricted: .restricted; default: .notRequested }
         states[.contacts] = switch CNContactStore.authorizationStatus(for: .contacts) { case .authorized: .allowed; case .denied: .denied; case .restricted: .restricted; case .notDetermined: .notRequested; default: .unavailable }
         states[.calendar] = Self.calendarState(EKEventStore.authorizationStatus(for: .event))
+        states[.appleMail] = switch AppleMailAuthorization.status() { case .allowed: .allowed; case .notRequested: .notRequested; case .denied: .denied; case .unavailable: .unavailable }
         states[.appleNotes] = switch AppleNotesAuthorization.status() { case .allowed: .allowed; case .notRequested: .notRequested; case .denied: .denied; case .unavailable: .unavailable }
         states[.automation] = .systemManaged
         states[.accessibility] = AXIsProcessTrusted() ? .allowed : .notRequested
@@ -116,6 +118,7 @@ struct KeyboardPermissionSnapshot: Equatable {
         case .calendar:
             do { _ = try await EKEventStore().requestFullAccessToEvents() } catch { requestFailed = true }
         case .appleNotes: _ = await AppleNotesAuthorization.request()
+        case .appleMail: _ = await AppleMailAuthorization.request()
         case .automation: openSettings(kind)
         case .accessibility:
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary

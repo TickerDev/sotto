@@ -2,6 +2,8 @@
 
 No integration SDK/runtime or marketplace installer is implemented in this checkout. Contributors cannot yet load an external package without rebuilding Sotto. There is no working HelloSotto package yet; a manifest or static gallery alone would not satisfy that requirement.
 
+Built-in Apple Mail and Apple Notes use reviewed native adapters and per-target Automation permissions. They are not dynamically installed SDK packages and do not make third-party executable loading available.
+
 ## Target contract
 
 IntegrationManifest must identify publisher, stable namespaced integration ID, version, compatible Sotto range, descriptions, declared tools/input/output schemas, permissions, authentication, runtime requirements and artifact integrity. ToolRegistration must reject collisions with native IDs and reserved agent tools. Untrusted server hints cannot downgrade risk or grant permissions.

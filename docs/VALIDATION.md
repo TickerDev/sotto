@@ -426,3 +426,9 @@ All 361 automated tests pass, with 24 optional/live tests skipped. Eleven AppleN
 The adapter remains Implemented pending owned real account creation/read/update and cleanup, just-in-time grant/revocation/resume, unsupported-note fixtures and spoken acceptance. Replacement removes rich formatting; shared/locked/attachment-bearing updates are refused. No private Notes database was accessed. See INTEGRATIONS.md and TOOLS.md for bounded search/read limits.
 
 Actual org.sotto.mac no-prompt Automation preflight returned notRequested; no Notes launch/read/write was attempted. Evidence: [native permission report](acceptance/2026-11-18-apple-notes.json). This is permission observation only, not real-account verification.
+
+## Read-only Apple Mail — November 18, 2026
+
+All 372 automated tests pass, with 24 optional/live tests skipped; the native macOS application build succeeds. Eleven new AppleMailTests combine controlled account/reference/identity/partial-result cases with actual Foundation AppleScript date/UTF-8 helper execution and complete installed-dictionary compilation. These do not certify a live inbox. Private-origin tests cover same-Mail reads and refusal of unapproved cross-source/network calls. Date validation additionally rejects Foundation's normalization of impossible calendar dates and time-zone offsets.
+
+The real org.sotto.mac no-prompt Automation preflight returned notRequested: [native permission evidence](acceptance/2026-11-18-apple-mail.json). No Mail launch, account/content read, consent prompt, sending or mailbox change was performed. mail.accounts/search/read remain Implemented pending an owned real-account fixture, permission grant/revocation/resume, moved/oversized messages and service-failure acceptance. Search is bounded to inbox sender/subject metadata; no globally latest/all-folder/body-search guarantee is made.

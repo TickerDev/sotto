@@ -10,11 +10,13 @@ Contacts writes require exact card/revision review and read-back. Local notes us
 
 ## Data and permissions
 
-Use only current native OS authorization; never reset TCC, extract another app's tokens or change private account databases. Contacts, Calendar, Reminders, Apple Notes Automation and Accessibility setup is just-in-time and the suspended request resumes only after access is verified. Screen capture remains explicit and permission-scoped. OAuth account connectors are not shipped yet.
+Use only current native OS authorization; never reset TCC, extract another app's tokens or change private account databases. Contacts, Calendar, Reminders, Apple Notes/Mail Automation and Accessibility setup is just-in-time and the suspended request resumes only after access is verified. Screen capture remains explicit and permission-scoped. OAuth account connectors are not shipped yet.
 
 Reasoning/transcription destinations follow the existing processing choices. Keychain stores provider credentials separately. Activity history can contain titles/paths but not raw audio or complete document/note bodies. Local indexing, timer state, notes and workflow recovery have separate local files/retention; clearing history does not remove or undo them. FileVault is recommended for disk protection; application records are not a substitute for full-disk encryption.
 
 Apple Notes uses fixed reviewed source with JSON over private stdin. The temporary descriptor is created exclusively with mode 0600 and unlinked before note content is written; user content never enters AppleScript source or command-line arguments. Notes-specific preflight must allow access before any native operation. Consequential changes freeze the actual destination or note ID/revision and final visible text. Edits refuse locked/shared/attachment-bearing notes, and replacement explicitly discloses rich-format loss. Native content is rechecked before mutation, then independently read back; cloud synchronization and cross-process atomicity are not guaranteed. Failed/uncertain writes must not be replayed blindly. No Notes private database is read.
+
+Apple Mail exposes only read-only account/inbox discovery and selected text extraction. Search results mint opaque in-memory references bound to actual account/native/RFC message IDs and displayed metadata. Reads cannot accept invented native IDs, cross accounts, reuse expired references or follow a message after its identity/mailbox changes. Result text remains untrusted, uses selected-provider consent and cannot authorize cross-source disclosure or writes. Account results project only declared fields, excluding passwords or unexpected adapter data. The reviewed helper receives private stdin and returns bounded JSON; no email content is placed in executable source or process arguments. Raw source, attachments, links and private account stores are not accessed. Native read-status changes are disclosed as partial outcomes.
 
 ## Validation boundary
 
@@ -24,7 +26,7 @@ Screen Recording was unavailable and no screenshot was taken. The controlled ext
 
 ## Pending systems
 
-Mail/message sending, provider OAuth, general UI action policy, browser forms, external packages, SDK/MCP runtimes and marketplace installation are not exposed yet. Their design must enforce the same boundaries, with durable send-attempt evidence, reviewed recipients/body, verified destinations, no secret typing into unverified targets, publisher/grant verification and explicit code-launch consent.
+Mail drafting/sending/state changes, messaging, provider OAuth, general UI action policy, browser forms, external packages, SDK/MCP runtimes and marketplace installation are not exposed yet. Their design must enforce the same boundaries, with durable send-attempt evidence, reviewed recipients/body, verified destinations, no secret typing into unverified targets, publisher/grant verification and explicit code-launch consent.
 
 Process isolation alone is not sandboxing. A future integration that executes code with ordinary user privileges cannot truthfully be described as confined by Sotto's model-facing tool policy. Resolve the OS sandbox/trusted-code boundary before shipping package execution.
 

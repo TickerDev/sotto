@@ -12,6 +12,7 @@ struct IntegrationAccessSheet: View {
     let request: IntegrationAccessRequest
     private var iconName: String {
         switch request.kind {
+        case .appleMail: "envelope"
         case .appleNotes: "note.text"
         case .contacts: "person.crop.circle"
         case .calendar: "calendar"
@@ -22,6 +23,7 @@ struct IntegrationAccessSheet: View {
     }
     private var leadText: String {
         switch request.kind {
+        case .appleMail: "Read the inbox messages you ask about without repeating your request."
         case .appleNotes: "Find or save your Apple Notes without repeating your request."
         case .contacts: "Find the person you mean without leaving your request."
         case .calendar: "Check your calendar or add an event without leaving what you’re doing."
@@ -32,6 +34,7 @@ struct IntegrationAccessSheet: View {
     }
     private var bodyText: String {
         switch request.kind {
+        case .appleMail: "Allow Sotto to control Mail in the macOS prompt. After access is checked, your original request continues using accounts already configured in Apple Mail."
         case .appleNotes: "Allow Sotto to control Notes in the macOS prompt. Your original request resumes after access is checked. Saving or changing a note requires a separate review."
         case .contacts: "Allow Contacts access in the macOS prompt. Sotto will resume your original request after access is verified. Creating or changing a card requires a separate review."
         case .calendar: "macOS calls this full access. Sotto reads the dates you ask about and creates events you request. It never sends invitations, edits or deletes events. After access is allowed, your original request will continue."
@@ -42,6 +45,7 @@ struct IntegrationAccessSheet: View {
     }
     private var privacyNote: String {
         switch request.kind {
+        case .appleMail: "Requested account details, senders, subjects and message text may be processed by your selected intelligence. Sotto does not send, archive, mark messages read or inspect account passwords."
         case .appleNotes: "Requested note text may be processed by your selected intelligence. Sotto never reads the private Notes database and cannot edit locked, shared or attachment-bearing notes."
         case .contacts: "Names, phone numbers and email addresses returned for your request may be processed by your selected intelligence. Sotto does not send messages or email through Contacts."
         case .calendar: "Today and tomorrow’s basic calendar questions stay on this Mac. More flexible requests may share event titles and times with your selected intelligence provider."
@@ -58,7 +62,7 @@ struct IntegrationAccessSheet: View {
                 .font(.callout).foregroundStyle(.secondary)
             Text(privacyNote)
                 .font(.caption).foregroundStyle(.secondary)
-            if model.awaitingAccessibilityGrant && [.accessibility, .appleNotes].contains(request.kind) {
+            if model.awaitingAccessibilityGrant && [.accessibility, .appleNotes, .appleMail].contains(request.kind) {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text("Waiting for \(request.kind.title) permission in System Settings…")
@@ -68,7 +72,7 @@ struct IntegrationAccessSheet: View {
             HStack {
                 Button("Cancel", role: .cancel) { model.resolveIntegration(request.id, allowed: false) }
                 Spacer()
-                if model.awaitingAccessibilityGrant && [.accessibility, .appleNotes].contains(request.kind) {
+                if model.awaitingAccessibilityGrant && [.accessibility, .appleNotes, .appleMail].contains(request.kind) {
                     Button("Open \(request.kind.title) Settings…") { model.permissions.openSettings(request.kind) }
                     Button("Check now") { model.checkAccessibilityGrant(request.id) }
                         .buttonStyle(.borderedProminent)
