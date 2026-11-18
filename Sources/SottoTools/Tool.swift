@@ -36,6 +36,7 @@ public struct ToolDescriptor: Sendable {
     public var providerName: String { id.replacingOccurrences(of: ".", with: "__") }
     public var name: String {
         switch id {
+        case "mail.draft": return "Prepare an unsent email"
         case "mail.accounts": return "Find your Apple Mail accounts"
         case "mail.search": return "Find inbox messages"
         case "mail.read": return "Read an inbox message"

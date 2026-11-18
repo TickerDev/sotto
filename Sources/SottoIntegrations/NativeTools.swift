@@ -6,6 +6,7 @@ import SottoTools
 public enum NativeTools {
     public static func registry(sottoSettings: (any SottoSettingsBridge)? = nil, webSearch: (any WebSearchProvider)? = nil) -> ToolRegistry {
         let tools: [any Tool] = [
+            MailDraftTool(),
             AppleMailTool(action: "accounts"), AppleMailTool(action: "search"), AppleMailTool(action: "read"),
             AppleNotesTool(action: "list"), AppleNotesTool(action: "search"), AppleNotesTool(action: "read"), AppleNotesTool(action: "create"), AppleNotesTool(action: "update"),
             NotesTool(action: "list"), NotesTool(action: "search"), NotesTool(action: "read"), NotesTool(action: "create"), NotesTool(action: "update"),

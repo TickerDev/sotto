@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased · reviewed unsent Mail compose
+
+- Add mail.draft with actual sender-account validation, complete recipient/subject/body approval and independent outgoing-message field checks.
+- Persist hash-only dispatch reservations before native creation to prevent duplicate drafts after uncertainty or relaunch.
+- Refuse header injection, unsupported recipient formats and oversized content. Report partial outcomes without automatic cleanup/recreation.
+- This prepares an unsent compose window; saved Drafts-folder persistence, threading and delivery remain unverified/unavailable.
+
+
 ## Unreleased · read-only Apple Mail
 
 - Add mail.accounts/search/read through the public Automation interface and accounts already configured in Apple Mail.

@@ -13,7 +13,15 @@ public struct ApprovalPresentation: Sendable {
 
     public init(_ approval: Approval) {
         let arguments = approval.arguments.object ?? [:]
-        if approval.tool.hasPrefix("appleNotes.") {
+        if approval.tool == "mail.draft" {
+            title = "Prepare an unsent email"
+            fields = [Field(label: "Account", value: arguments["account_name"]?.string ?? ""),
+                      Field(label: "From", value: arguments["sender"]?.string ?? ""),
+                      Field(label: "To", value: { if case .array(let rows) = arguments["to"] { return rows.compactMap(\.string).joined(separator: "\n") }; return "" }()),
+                      Field(label: "Subject", value: arguments["subject"]?.string ?? ""),
+                      Field(label: "Complete message", value: arguments["body"]?.string ?? ""),
+                      Field(label: "Action", value: "Open an unsent compose window in Apple Mail. Nothing will be sent. Saved Drafts-folder persistence is not verified.")]
+        } else if approval.tool.hasPrefix("appleNotes.") {
             title = approval.tool == "appleNotes.create" ? "Create an Apple Note" : "Update an Apple Note"
             var review = [Field(label: "Location", value: "Apple Notes · " + (arguments["folder_name"]?.string ?? "")),
                           Field(label: "Title", value: arguments["title"]?.string ?? ""),

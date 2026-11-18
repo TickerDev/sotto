@@ -9,7 +9,7 @@ Sotto is an open-source macOS 14+ Swift 6 application. It does not require a pro
 | Contacts | Implemented; controlled write tests/native card snapshot exercised | Native search/get/create/update, just-in-time OS permission, exact revisions and field review. Actual account save acceptance pending because Contacts permission is absent here. |
 | Sotto Notes | Verified with isolated real local files | Local list/search/read/create/update, source labeling, reviewed append/replace, exact revision checks. Separate from Apple Notes. |
 | Apple Notes | Implemented; real account operations unverified | Five appleNotes.* tools, native per-app Automation connection, reviewed changes and independent visible-text read-back. Fixed script compiles against installed public dictionary; private transport/timeout/cancellation execute for real. |
-| Apple Mail | Implemented for read-only inbox operations; real account acceptance pending | mail.accounts/search/read use public Automation, real account/native/RFC identifiers, expiring result references and bounded text. No draft/send/archive/mark-read tools are registered. |
+| Apple Mail | Implemented for read-only inbox operations; real account acceptance pending | mail.accounts/search/read use public Automation, real account/native/RFC identifiers, expiring result references and bounded text. A separately reviewed mail.draft prepares a new unsent compose window; no send/archive/mark-read tools are registered. |
 | Gmail / Microsoft Outlook | Planned | Official OAuth/API adapters; no copied browser/account credentials or embedded shared secret. Maintainer application registrations and account verification are not configured. |
 | Apple Messages / Slack / Discord | Planned | Application/bot APIs and explicit access only; no history scraping, self-bots or extracted user tokens. No messaging tools are registered. |
 | General computer use | Planned | Structured AX references, policies and verification still needed beyond the existing window/browser adapters. No arbitrary keyboard tool is exposed. |
@@ -53,7 +53,17 @@ Message size and full returned body are guarded at 2 MB; text is an excerpt of a
 
 Controlled adapters cover account projection, absent accounts, reference expiry/eviction, changed account/native/RFC identity, skipped/ambiguous results and read-status/partial text. Actual Foundation AppleScript helpers pass time-zone conversion and Unicode clipping, and the full fixed script compiles against the installed public Mail dictionary without executing account operations. These are not real inbox validation. Existing manual user testing remains paused.
 
-## Email writes and other communication — not implemented yet
+## Reviewable new-message drafts
+
+mail.draft validates an actual enabled account and configured sender address, then shows sender/account, all recipient addresses, subject and complete body through the existing native approval. It prepares a new unsent compose window through Mail's public outgoing-message interface. It does not create a threaded reply, send, attach files or support CC/BCC. Subject/header controls, display-name address strings, duplicate recipients, more than ten recipients and oversized text are refused. Text is limited to 12000 UTF-8 bytes and never interpolated into executable source.
+
+An independent lookup by the actual outgoing-message ID checks sender, all recipients, subject, exact body, zero CC/BCC and visible state. Signature or other native differences yield partial completion rather than false success. Mail may automatically save drafts, but this adapter does not verify Drafts-folder persistence or cloud synchronization. It promises only verified compose fields when successful.
+
+Before native creation, a protected local receipt reserves a deterministic hash of the complete requested operation. Only hashes are stored at ~/Library/Application Support/Sotto/Mail/draft-attempts.json, capped at 1000 entries; bodies/recipients are not persisted there. The reservation is protected with a nonblocking file lock, synchronized and read back before dispatch. Corrupt/linked/oversized storage is preserved/refused. Identical attempts, including successful or uncertain ones, remain blocked across relaunch. This conservative first version cannot distinguish a deliberate later identical draft from a retry; there is no automatic receipt pruning or retry override. Review existing Mail windows before preparing different content.
+
+Native helper failures, mismatched fields and missing read-back report partial completion with an actual ID when available. Cancellation can leave an incomplete compose window; its receipt remains reserved. No automatic deletion or recreation is attempted. Controlled adapters, real isolated receipts and public-dictionary compilation are tested; real compose creation remains Implemented until native account/permission acceptance is observed.
+
+## Sending and other communication — not implemented yet
 
 Adapters must return actual provider account/message/thread/draft IDs and bounded normalized text. Account selection, sender, reply targets and original messages must survive the draft-to-send flow without model-generated substitutions. Mail sending must freeze recipients, subject and full body for review; a durable send-attempt record must precede dispatch. Queued/uncertain results cannot be retried blindly or presented as delivered.
 
@@ -65,4 +75,4 @@ References: [Google desktop OAuth](https://developers.google.com/identity/protoc
 
 ## Remaining major expansion
 
-Remaining Mail tools (thread/summarize/draft/send/reply/archive/markRead), messaging, structured UI actions, browser navigation/forms, file/text/network/notification utilities, dynamic integration SDK, HelloSotto package, MCP transports, curated registry/install/update/revoke UI and general task recovery remain unfinished. Existing workflow recovery is implemented; it does not make all new operations resumable.
+Remaining Mail tools (thread/summarize/send/reply/archive/markRead), messaging, structured UI actions, browser navigation/forms, file/text/network/notification utilities, dynamic integration SDK, HelloSotto package, MCP transports, curated registry/install/update/revoke UI and general task recovery remain unfinished. Existing workflow recovery is implemented; it does not make all new operations resumable.

@@ -155,10 +155,10 @@ end run
         XCTAssertEqual(process.terminationStatus, 0, String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
         for forbidden in ["set read status", "send outgoing", "delete message", "account directory", "password of", "source of m"] { XCTAssertFalse(AppleMailScript.source.contains(forbidden)) }
     }
-    func testOnlyThreeReadOnlyMailToolsAreRegistered() throws {
+    func testReadOnlyMailToolsAndSeparateDraftAreRegistered() throws {
         let tools = NativeTools.registry().descriptors.filter { $0.id.hasPrefix("mail.") }
-        XCTAssertEqual(Set(tools.map(\.id)), ["mail.accounts", "mail.search", "mail.read"])
-        XCTAssertTrue(tools.allSatisfy { $0.risk == .read && $0.capabilities.contains(.mail) && !$0.permissions.isEmpty })
+        XCTAssertEqual(Set(tools.filter { $0.risk == .read }.map(\.id)), ["mail.accounts", "mail.search", "mail.read"])
+        XCTAssertTrue(tools.allSatisfy { $0.capabilities.contains(.mail) && !$0.permissions.isEmpty })
         XCTAssertThrowsError(try NativeTools.registry().tool("mail.send"))
     }
 }
